@@ -1,0 +1,72 @@
+# ===========================================
+# EMAIL CONFIGURATION GUIDE
+# ===========================================
+
+# Copy this to your .env.local file to configure email sending
+
+# Email Provider Selection
+EMAIL_PROVIDER=nodemailer
+
+# ===========================================
+# DEVELOPMENT EMAIL SETUP (RECOMMENDED)
+# ===========================================
+
+# For development, leave SMTP settings blank to use Ethereal test emails
+# This creates temporary test emails that you can preview in browser
+# No configuration needed - it works automatically!
+
+# ===========================================
+# PRODUCTION SMTP CONFIGURATION
+# ===========================================
+
+# For Production SMTP (Gmail, Outlook, Custom SMTP)
+# SMTP_HOST=smtp.gmail.com
+# SMTP_PORT=587
+# SMTP_USER=your-email@gmail.com
+# SMTP_PASS=your-app-password
+# SMTP_FROM=your-email@gmail.com
+
+# ===========================================
+# EMAIL PROVIDER EXAMPLES
+# ===========================================
+
+# GMAIL SETUP:
+# 1. Enable 2-factor authentication on your Google account
+# 2. Generate App Password: https://myaccount.google.com/apppasswords
+# 3. Use these settings in your .env.local:
+#    EMAIL_PROVIDER=nodemailer
+#    SMTP_HOST=smtp.gmail.com
+#    SMTP_PORT=587
+#    SMTP_USER=your-email@gmail.com
+#    SMTP_PASS=your-16-character-app-password
+#    SMTP_FROM=your-email@gmail.com
+
+# OUTLOOK/HOTMAIL SETUP:
+#    EMAIL_PROVIDER=nodemailer
+#    SMTP_HOST=smtp-mail.outlook.com
+#    SMTP_PORT=587
+#    SMTP_USER=your-email@outlook.com
+#    SMTP_PASS=your-password
+#    SMTP_FROM=your-email@outlook.com
+
+# CUSTOM SMTP SERVER:
+#    EMAIL_PROVIDER=nodemailer
+#    SMTP_HOST=mail.yourdomain.com
+#    SMTP_PORT=587
+#    SMTP_USER=noreply@yourdomain.com
+#    SMTP_PASS=your-password
+#    SMTP_FROM=noreply@yourdomain.com
+
+# ===========================================
+# ALTERNATIVE EMAIL PROVIDERS
+# ===========================================
+
+# SENDGRID (Recommended for production):
+#    EMAIL_PROVIDER=sendgrid
+#    SENDGRID_API_KEY=your-sendgrid-api-key
+
+# AWS SES (For AWS deployments):
+#    EMAIL_PROVIDER=ses
+#    AWS_REGION=us-east-1
+#    AWS_ACCESS_KEY_ID=your-access-key
+#    AWS_SECRET_ACCESS_KEY=your-secret-key
