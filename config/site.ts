@@ -15,6 +15,11 @@ export const siteConfig = {
       icon: "Settings",
     },
     {
+      label: "Case Management",
+      href: "/case-management",
+      icon: "Briefcase",
+    },
+    {
       label: "Avatar Management",
       href: "/avatar-management",
       icon: "Users",
