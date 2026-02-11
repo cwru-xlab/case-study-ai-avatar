@@ -106,6 +106,7 @@ const PUBLIC_ROUTES = [
  */
 const ADMIN_ROUTES = [
   "/system-settings",
+  "/case-management",
   "/avatar-management",
   "/users-and-usages",
   "/kiosk/main-display",
