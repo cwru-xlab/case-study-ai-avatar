@@ -326,7 +326,7 @@ export default function AvatarProfileEditPage() {
           <ArrowLeft />
         </Button>
         <div className="flex items-center gap-3">
-          <div className="flex items-center justify-center w-10 h-10 rounded-full bg-gradient-to-br from-primary-100 to-secondary-100">
+          <div className="flex items-center justify-center w-10 h-10 rounded-full bg-linear-to-br from-primary-100 to-secondary-100">
             <Video className="w-5 h-5 text-primary-600" />
           </div>
           <h1 className={pageTitle()}>
@@ -563,7 +563,7 @@ export default function AvatarProfileEditPage() {
             </CardHeader>
             <CardBody className="space-y-4">
               <div className="flex items-center gap-3">
-                <div className="flex items-center justify-center w-12 h-12 rounded-full bg-gradient-to-br from-primary-100 to-secondary-100">
+                <div className="flex items-center justify-center w-12 h-12 rounded-full bg-linear-to-br from-primary-100 to-secondary-100">
                   <Video className="w-6 h-6 text-primary-600" />
                 </div>
                 <div className="flex-1">
