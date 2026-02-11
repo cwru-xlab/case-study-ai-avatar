@@ -37,6 +37,62 @@ export interface StartAvatarRequest {
 }
 
 /**
+ * ==================================================================================
+ * VIDEO/AUDIO PROFILE TYPES - EXTRACTED AVATAR SETTINGS
+ * ==================================================================================
+ * 
+ * These types represent the video and audio profile configuration that was previously
+ * embedded within the Avatar entity. In the new system, "Avatar" refers specifically
+ * to the video/audio profile, which can be managed independently.
+ */
+
+/**
+ * VideoAudioProfile Interface
+ * 
+ * Represents a standalone video/audio profile (what we now call an "Avatar").
+ * This is extracted from the Avatar Settings card in the avatar edit page.
+ * 
+ * Contains:
+ * - Video settings: quality, avatarName (HeyGen model), language
+ * - Audio settings: voice rate, voiceId, emotion
+ * - Metadata: id, name, description, timestamps, etc.
+ */
+export interface VideoAudioProfile {
+  id: string;                           // Unique identifier for the profile
+  name: string;                         // Display name for the profile
+  description?: string;                 // Optional description of the profile
+  
+  // Video Settings
+  quality: "low" | "medium" | "high";   // Video rendering quality
+  avatarName: string;                   // HeyGen avatar model identifier
+  language: string;                     // Two lowercase letters (en, zh, ko, vi, fr, de, ja)
+  
+  // Audio/Voice Settings
+  voice: VoiceConfig;                   // Voice configuration (rate, voiceId, emotion)
+  
+  // Optional HeyGen Knowledge Base
+  knowledgeId?: string;                 // Optional knowledge base ID
+  
+  // Metadata
+  createdBy: string;                    // User who created the profile
+  lastEditedBy: string;                 // User who last edited the profile
+  createdAt: string;                    // ISO timestamp when profile was created
+  lastEditedAt: string;                 // ISO timestamp when profile was last modified
+}
+
+/**
+ * CachedVideoAudioProfile Interface
+ * 
+ * Extends VideoAudioProfile with local cache metadata for offline-first support.
+ * Similar to CachedAvatar pattern used in avatar-storage.ts.
+ */
+export interface CachedVideoAudioProfile extends VideoAudioProfile {
+  isDirty?: boolean;                    // True if local changes haven't been synced
+  localVersion?: number;                // Local version number for conflict detection
+  remoteVersion?: number;               // Remote version number from S3
+}
+
+/**
  * CHAT STORAGE IMPLEMENTATION - CENTRALIZED TYPE DEFINITIONS
  * 
  * This section implements the chat storage types required by the meeting summary (Section #9).

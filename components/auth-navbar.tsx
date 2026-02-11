@@ -24,6 +24,7 @@ import {
   ChevronDown,
   User,
   Mail,
+  Video,
 } from "lucide-react";
 
 import { siteConfig } from "@/config/site";
@@ -38,6 +39,7 @@ const iconMap = {
   ChartColumnBig,
   Mail,
   Info,
+  Video,
 } as const;
 
 export const AuthNavbar = () => {
