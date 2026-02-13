@@ -24,6 +24,7 @@ import {
   ChevronDown,
   User,
   Mail,
+  Video,
   Briefcase,
 } from "lucide-react";
 
@@ -39,6 +40,7 @@ const iconMap = {
   ChartColumnBig,
   Mail,
   Info,
+  Video,
   Briefcase,
 } as const;
 

@@ -25,6 +25,11 @@ export const siteConfig = {
       icon: "Users",
     },
     {
+      label: "Avatar Profiles",
+      href: "/avatar-profiles",
+      icon: "Video",
+    },
+    {
       label: "Users and Usages",
       href: "/users-and-usages",
       icon: "ChartColumnBig",
