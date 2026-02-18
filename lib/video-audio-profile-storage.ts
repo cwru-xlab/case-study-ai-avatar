@@ -79,27 +79,19 @@ class VideoAudioProfileStorage {
       .replace(/^-+|-+$/g, "");
   }
 
-  // Add new profile
+  // Add new profile (persists to S3 via API, caches in IndexedDB)
   async add(
     profileData: Omit<VideoAudioProfile, "id" | "createdAt" | "lastEditedAt">
   ): Promise<VideoAudioProfile> {
     const db = await this.ensureDB();
 
-    // Generate ID from name
     const id = this.generateId(profileData.name);
 
     if (id === "new") {
       throw new Error('Profile name cannot generate "new" as ID');
     }
 
-    // Check if ID already exists
-    const existing = await db.get("profiles", id);
-    if (existing) {
-      throw new Error(`A profile with ID "${id}" already exists`);
-    }
-
     const now = new Date().toISOString();
-    const version = this.generateVersion();
 
     const profile: VideoAudioProfile = {
       ...profileData,
@@ -108,23 +100,33 @@ class VideoAudioProfileStorage {
       lastEditedAt: now,
     };
 
+    // Persist to S3 via API
+    const response = await fetch("/api/profile/add", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(profile),
+    });
+
+    if (!response.ok) {
+      const data = await response.json();
+      throw new Error(data.error || "Failed to create profile");
+    }
+
+    const version = this.generateVersion();
+
     const cachedProfile: CachedVideoAudioProfile = {
       ...profile,
       localVersion: version,
-      remoteVersion: 0, // Will be set after API call (future)
-      isDirty: true,
+      remoteVersion: version,
+      isDirty: false,
     };
 
-    // Cache locally
     await db.put("profiles", cachedProfile);
-
-    // TODO: In the future, call API to persist to S3
-    // For now, frontend-only storage
 
     return profile;
   }
 
-  // Update existing profile locally
+  // Update existing profile locally (marks as dirty until save)
   async updateLocal(id: string, updates: Partial<VideoAudioProfile>): Promise<void> {
     const db = await this.ensureDB();
 
@@ -147,7 +149,7 @@ class VideoAudioProfileStorage {
     await db.put("profiles", updatedProfile);
   }
 
-  // Save local changes (future: to server)
+  // Save local changes to S3 via API
   async save(id: string): Promise<VideoAudioProfile> {
     const db = await this.ensureDB();
 
@@ -157,45 +159,131 @@ class VideoAudioProfileStorage {
     }
 
     if (!cached.isDirty) {
-      return cached; // No changes to save
+      return cached;
     }
 
-    // TODO: In the future, call API to update S3
-    // For now, just mark as saved locally
-    cached.isDirty = false;
-    await db.put("profiles", cached);
+    const { isDirty, localVersion, remoteVersion, ...profileData } = cached;
 
-    return cached;
+    const response = await fetch("/api/profile/edit", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, profile: profileData }),
+    });
+
+    if (!response.ok) {
+      const data = await response.json();
+      throw new Error(data.error || "Failed to save profile");
+    }
+
+    const result = await response.json();
+    const version = this.generateVersion();
+
+    const updatedCached: CachedVideoAudioProfile = {
+      ...result.profile,
+      localVersion: version,
+      remoteVersion: version,
+      isDirty: false,
+    };
+
+    await db.put("profiles", updatedCached);
+
+    return result.profile;
   }
 
-  // List all profiles
+  // List all profiles (syncs from server, merges with local cache)
   async list(): Promise<CachedVideoAudioProfile[]> {
     const db = await this.ensureDB();
+
+    try {
+      const response = await fetch("/api/profile/list");
+      if (response.ok) {
+        const data = await response.json();
+        const serverProfiles: VideoAudioProfile[] = data.profiles || [];
+        const version = this.generateVersion();
+
+        // Get current local dirty profiles to preserve their state
+        const localProfiles = await db.getAll("profiles");
+        const dirtyMap = new Map(
+          localProfiles.filter((p) => p.isDirty).map((p) => [p.id, p])
+        );
+
+        // Update IndexedDB with server data, but preserve dirty locals
+        for (const profile of serverProfiles) {
+          if (!dirtyMap.has(profile.id)) {
+            const cached: CachedVideoAudioProfile = {
+              ...profile,
+              localVersion: version,
+              remoteVersion: version,
+              isDirty: false,
+            };
+            await db.put("profiles", cached);
+          }
+        }
+
+        // Remove local profiles that no longer exist on server (unless dirty)
+        const serverIds = new Set(serverProfiles.map((p) => p.id));
+        for (const local of localProfiles) {
+          if (!serverIds.has(local.id) && !local.isDirty) {
+            await db.delete("profiles", local.id);
+          }
+        }
+      }
+    } catch (error) {
+      console.error("Failed to sync profiles from server:", error);
+    }
+
     const profiles = await db.getAll("profiles");
-    
-    // Sort by lastEditedAt descending (most recent first)
-    return profiles.sort((a, b) => 
+    return profiles.sort((a, b) =>
       new Date(b.lastEditedAt).getTime() - new Date(a.lastEditedAt).getTime()
     );
   }
 
-  // Get single profile
+  // Get single profile (tries IndexedDB first, falls back to API)
   async get(id: string): Promise<CachedVideoAudioProfile | null> {
     const db = await this.ensureDB();
-    return (await db.get("profiles", id)) || null;
+
+    const cached = await db.get("profiles", id);
+    if (cached) return cached;
+
+    try {
+      const response = await fetch(`/api/profile/get?id=${encodeURIComponent(id)}`);
+      if (response.ok) {
+        const data = await response.json();
+        const profile: VideoAudioProfile = data.profile;
+        const version = this.generateVersion();
+
+        const cachedProfile: CachedVideoAudioProfile = {
+          ...profile,
+          localVersion: version,
+          remoteVersion: version,
+          isDirty: false,
+        };
+
+        await db.put("profiles", cachedProfile);
+        return cachedProfile;
+      }
+    } catch (error) {
+      console.error("Failed to fetch profile from server:", error);
+    }
+
+    return null;
   }
 
-  // Delete profile
+  // Delete profile (deletes from S3 via API and removes from IndexedDB)
   async delete(id: string): Promise<void> {
     const db = await this.ensureDB();
 
-    const existing = await db.get("profiles", id);
-    if (!existing) {
-      throw new Error(`Profile ${id} not found`);
+    const response = await fetch("/api/profile/delete", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id }),
+    });
+
+    if (!response.ok) {
+      const data = await response.json();
+      throw new Error(data.error || "Failed to delete profile");
     }
 
-    // TODO: In the future, delete from server first
-    // For now, just delete locally
     await db.delete("profiles", id);
   }
 
@@ -235,7 +323,6 @@ class VideoAudioProfileStorage {
       throw new Error(`Profile ${id} not found`);
     }
 
-    // Create new profile with copied settings
     const newProfile = await this.add({
       name: newName,
       description: existing.description ? `Copy of: ${existing.description}` : `Copy of ${existing.name}`,
