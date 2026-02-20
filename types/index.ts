@@ -37,6 +37,24 @@ export interface StartAvatarRequest {
 }
 
 /**
+ * Persona (Case Study architecture): reusable visual shell only.
+ * Appearance + voice configuration. No system prompt, knowledge, or case-specific data.
+ */
+export interface Persona {
+  id: string;
+  name: string;
+  professionalTitle: string;
+  avatarImageUrl?: string;
+  voiceId: string;
+  voiceRate: number;
+  language: string;
+  voiceEmotion?: string;
+  animationSet?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/**
  * CHAT STORAGE IMPLEMENTATION - CENTRALIZED TYPE DEFINITIONS
  * 
  * This section implements the chat storage types required by the meeting summary (Section #9).

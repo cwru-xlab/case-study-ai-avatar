@@ -20,9 +20,14 @@ export const siteConfig = {
       icon: "Briefcase",
     },
     {
-      label: "Avatar Management",
+      label: "Persona Management",
       href: "/avatar-management",
       icon: "Users",
+    },
+    {
+      label: "Cohort Management",
+      href: "/professor/cohorts",
+      icon: "GraduationCap",
     },
     {
       label: "Users and Usages",

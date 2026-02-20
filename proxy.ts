@@ -1,8 +1,10 @@
 /**
- * NEXT.JS MIDDLEWARE - AUTHENTICATION AND AUTHORIZATION
+ * NEXT.JS PROXY - AUTHENTICATION AND AUTHORIZATION
  *
- * This middleware provides comprehensive security for the AI Avatar Kiosk application.
+ * This proxy provides comprehensive security for the AI Avatar Kiosk application.
  * It handles JWT-based authentication and role-based authorization for all protected routes.
+ *
+ * Note: Next.js 16+ uses "proxy" instead of "middleware" as the file and function name.
  *
  * Key Features:
  * - JWT token validation for all protected routes
@@ -138,6 +140,9 @@ const ADMIN_ROUTES = [
   "/api/cta/generate-qr", // QR code generation for kiosk
   "/cta-management", // CTA admin portal section
   "/api/audio/transcribe",
+  // Professor cohort management
+  "/professor/cohorts",
+  "/api/professor/cohorts",
 ];
 
 /**
@@ -169,20 +174,20 @@ const KIOSK_ROUTES: string[] = [
 ];
 
 /**
- * MAIN MIDDLEWARE FUNCTION
+ * MAIN PROXY FUNCTION
  *
  * Processes every request to determine authentication and authorization requirements.
  * Implements a security-first approach where all routes are protected by default.
  *
  * Flow:
  * 1. Check if route is public (skip authentication)
- * 2. Check if route is static/system (skip middleware)
+ * 2. Check if route is static/system (skip proxy)
  * 3. Validate JWT token exists
  * 4. Verify JWT token signature and payload
  * 5. Check admin role for admin-only routes
  * 6. Allow or deny access based on validation results
  */
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   /**
@@ -388,27 +393,29 @@ export async function middleware(request: NextRequest) {
 }
 
 /**
- * MIDDLEWARE CONFIGURATION
+ * PROXY CONFIGURATION
  *
- * Configures which routes the middleware should process.
- * Uses Next.js matcher configuration to exclude system routes.
+ * Configures which routes the proxy should process.
+ * Uses Next.js matcher configuration to exclude system routes and API routes.
  *
  * Excluded paths:
+ * - api: API routes (handled separately)
  * - _next/static: Static assets (CSS, JS, images)
  * - _next/image: Next.js image optimization
  * - favicon.ico: Browser favicon requests
  *
- * This optimization prevents middleware execution for requests
+ * This optimization prevents proxy execution for requests
  * that don't require authentication or authorization checks.
  */
 export const config = {
   matcher: [
     /*
      * Match all request paths except for the ones starting with:
+     * - api (API routes)
      * - _next/static (static files)
      * - _next/image (image optimization files)
      * - favicon.ico (favicon file)
      */
-    "/((?!_next/static|_next/image|favicon.ico).*)",
+    "/((?!api|_next/static|_next/image|favicon.ico).*)",
   ],
 };

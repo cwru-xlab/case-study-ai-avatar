@@ -42,6 +42,7 @@ const s3Client = new S3Client({
 const BUCKET_NAME = process.env.AWS_S3_BUCKET_NAME!; // Same bucket as avatars
 const AVATARS_PREFIX = "avatars/"; // Existing avatar storage prefix
 const CHATS_PREFIX = "chats/"; // NEW: Chat storage prefix
+const COHORTS_PREFIX = "cohorts/"; // Cohorts storage prefix
 const VERSION_FILE = "avatars/version.json"; // Avatar version manifest
 export const KNOWLEDGE_BASE_PREFIX = "knowledge-base/"; // Existing knowledge base prefix
 export const METADATA_SUFFIX = "metadata.json"; // Existing metadata file suffix
@@ -893,6 +894,296 @@ export class S3AvatarStorage {
     }
     
     return null; // No image found
+  }
+
+  /**
+   * ============================================================================
+   * COHORT STORAGE
+   * ============================================================================
+   * Methods for storing and retrieving professor cohorts
+   */
+
+  /**
+   * Get Cohort from S3
+   */
+  async getCohort(cohortId: string): Promise<any | null> {
+    const key = `${COHORTS_PREFIX}${cohortId}.json`;
+
+    try {
+      const command = new GetObjectCommand({
+        Bucket: BUCKET_NAME,
+        Key: key,
+      });
+
+      const response = await s3Client.send(command);
+      const body = await response.Body?.transformToString();
+      
+      if (!body) {
+        return null;
+      }
+
+      return JSON.parse(body);
+    } catch (error: any) {
+      if (error.name === 'NoSuchKey' || error.$metadata?.httpStatusCode === 404) {
+        return null;
+      }
+      console.error(`Error fetching cohort ${key}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Save Cohort to S3
+   */
+  async saveCohort(cohort: any): Promise<number> {
+    const key = `${COHORTS_PREFIX}${cohort.id}.json`;
+    const version = Date.now();
+
+    const cohortWithVersion = {
+      ...cohort,
+      version,
+      lastModified: new Date().toISOString(),
+    };
+
+    const command = new PutObjectCommand({
+      Bucket: BUCKET_NAME,
+      Key: key,
+      Body: JSON.stringify(cohortWithVersion, null, 2),
+      ContentType: 'application/json',
+    });
+
+    await s3Client.send(command);
+    console.log(`Cohort saved: ${key} (version: ${version})`);
+
+    return version;
+  }
+
+  /**
+   * List All Cohorts
+   */
+  async listCohorts(professorId?: string): Promise<any[]> {
+    const prefix = COHORTS_PREFIX;
+    
+    try {
+      const command = new ListObjectsV2Command({
+        Bucket: BUCKET_NAME,
+        Prefix: prefix,
+      });
+
+      const response = await s3Client.send(command);
+      
+      if (!response.Contents || response.Contents.length === 0) {
+        return [];
+      }
+
+      const cohorts = await Promise.all(
+        response.Contents.map(async (item) => {
+          if (!item.Key || !item.Key.endsWith('.json')) return null;
+          
+          const cohortId = item.Key.replace(prefix, '').replace('.json', '');
+          return await this.getCohort(cohortId);
+        })
+      );
+
+      const filtered = cohorts.filter(Boolean);
+      
+      if (professorId) {
+        return filtered.filter((c: any) => c.professorId === professorId);
+      }
+
+      return filtered;
+    } catch (error) {
+      console.error('Error listing cohorts:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Delete Cohort from S3
+   */
+  async deleteCohort(cohortId: string): Promise<void> {
+    const key = `${COHORTS_PREFIX}${cohortId}.json`;
+
+    try {
+      const command = new DeleteObjectCommand({
+        Bucket: BUCKET_NAME,
+        Key: key,
+      });
+
+      await s3Client.send(command);
+      console.log(`Cohort deleted: ${key}`);
+    } catch (error: any) {
+      if (error.name !== 'NoSuchKey') {
+        console.error(`Error deleting cohort ${key}:`, error);
+        throw error;
+      }
+    }
+  }
+
+  /**
+   * ============================================================================
+   * PERSONA STORAGE
+   * ============================================================================
+   * Methods for storing and retrieving personas (appearance + voice only)
+   */
+
+  /**
+   * Get Persona from S3
+   */
+  async getPersona(personaId: string): Promise<any | null> {
+    const key = `personas/${personaId}.json`;
+
+    try {
+      const command = new GetObjectCommand({
+        Bucket: BUCKET_NAME,
+        Key: key,
+      });
+
+      const response = await s3Client.send(command);
+      const body = await response.Body?.transformToString();
+      
+      if (!body) {
+        return null;
+      }
+
+      return JSON.parse(body);
+    } catch (error: any) {
+      if (error.name === 'NoSuchKey' || error.$metadata?.httpStatusCode === 404) {
+        return null;
+      }
+      console.error(`Error fetching persona ${key}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Save Persona to S3
+   */
+  async savePersona(persona: any): Promise<number> {
+    const key = `personas/${persona.id}.json`;
+    const version = Date.now();
+
+    const personaWithVersion = {
+      ...persona,
+      version,
+      lastModified: new Date().toISOString(),
+    };
+
+    const command = new PutObjectCommand({
+      Bucket: BUCKET_NAME,
+      Key: key,
+      Body: JSON.stringify(personaWithVersion, null, 2),
+      ContentType: 'application/json',
+    });
+
+    await s3Client.send(command);
+    console.log(`Persona saved: ${key} (version: ${version})`);
+
+    return version;
+  }
+
+  /**
+   * List All Personas
+   */
+  async listPersonas(): Promise<any[]> {
+    const prefix = "personas/";
+    
+    try {
+      const command = new ListObjectsV2Command({
+        Bucket: BUCKET_NAME,
+        Prefix: prefix,
+      });
+
+      const response = await s3Client.send(command);
+      
+      if (!response.Contents || response.Contents.length === 0) {
+        return [];
+      }
+
+      const personas = await Promise.all(
+        response.Contents.map(async (item) => {
+          if (!item.Key || !item.Key.endsWith('.json')) return null;
+          
+          const personaId = item.Key.replace(prefix, '').replace('.json', '');
+          return await this.getPersona(personaId);
+        })
+      );
+
+      return personas.filter(Boolean);
+    } catch (error) {
+      console.error('Error listing personas:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Delete Persona from S3
+   */
+  async deletePersona(personaId: string): Promise<void> {
+    const key = `personas/${personaId}.json`;
+
+    try {
+      const command = new DeleteObjectCommand({
+        Bucket: BUCKET_NAME,
+        Key: key,
+      });
+
+      await s3Client.send(command);
+      console.log(`Persona deleted: ${key}`);
+    } catch (error: any) {
+      if (error.name !== 'NoSuchKey') {
+        console.error(`Error deleting persona ${key}:`, error);
+        throw error;
+      }
+    }
+  }
+
+  /**
+   * Upload Persona Image to S3
+   */
+  async uploadPersonaImage(personaId: string, imageFile: File): Promise<string> {
+    const fileExtension = imageFile.name.split('.').pop()?.toLowerCase() || 'jpg';
+    const key = `personas/${personaId}/avatar.${fileExtension}`;
+
+    const command = new PutObjectCommand({
+      Bucket: BUCKET_NAME,
+      Key: key,
+      Body: new Uint8Array(await imageFile.arrayBuffer()),
+      ContentType: imageFile.type,
+      ACL: 'public-read',
+    });
+
+    await s3Client.send(command);
+
+    const region = process.env.AWS_REGION || "us-east-2";
+    const publicUrl = `https://${BUCKET_NAME}.s3.${region}.amazonaws.com/${key}`;
+    
+    console.log(`Persona image uploaded: ${publicUrl}`);
+    return publicUrl;
+  }
+
+  /**
+   * Delete Persona Image from S3
+   */
+  async deletePersonaImage(personaId: string): Promise<void> {
+    const extensions = ['jpg', 'jpeg', 'png'];
+    
+    const deletePromises = extensions.map(async (ext) => {
+      const key = `personas/${personaId}/avatar.${ext}`;
+      try {
+        const command = new DeleteObjectCommand({
+          Bucket: BUCKET_NAME,
+          Key: key,
+        });
+        await s3Client.send(command);
+      } catch (error: any) {
+        if (error.name !== 'NoSuchKey') {
+          console.error(`Error deleting persona image ${key}:`, error);
+        }
+      }
+    });
+
+    await Promise.all(deletePromises);
   }
 }
 
