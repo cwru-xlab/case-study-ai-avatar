@@ -151,6 +151,8 @@ const ADMIN_ROUTES = [
   "/api/case/delete",
   "/api/case/get",
   "/api/case/list",
+  // Student History routes
+  "/student-history",
 ];
 
 /**
