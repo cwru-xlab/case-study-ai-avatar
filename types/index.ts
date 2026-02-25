@@ -236,3 +236,255 @@ export interface EmailTemplateVars {
   messageCount: number;                 // Number of messages in chat
   chatDuration: string;                 // Formatted chat duration
 }
+
+/**
+ * ==================================================================================
+ * CASE AUTHORING SYSTEM - PROFESSOR PORTAL TYPES
+ * ==================================================================================
+ * 
+ * Types for the case authoring system that allows professors to create
+ * structured learning scenarios with visual scenario builders.
+ */
+
+/**
+ * Course Interface
+ * 
+ * Represents a course that contains multiple cases.
+ * Courses are the top-level organizational unit for professors.
+ */
+export interface Course {
+  id: string;                           // Unique course identifier
+  name: string;                         // Course name (e.g., "Business Ethics 101")
+  code: string;                         // Course code (e.g., "MGMT 301")
+  description?: string;                 // Course description
+  semester: string;                     // Semester (e.g., "Spring 2026")
+  professorId: string;                  // ID of the professor who owns this course
+  professorName: string;                // Name of the professor
+  createdAt: string;                    // ISO timestamp when course was created
+  updatedAt: string;                    // ISO timestamp when course was last modified
+}
+
+/**
+ * Learning Objective Interface
+ * 
+ * Defines what students should learn from a case.
+ * Used for scoring and analytics.
+ */
+export interface LearningObjective {
+  id: string;                           // Unique objective identifier
+  title: string;                        // Short title (e.g., "Identify symptoms")
+  description: string;                  // Detailed description
+  type: "knowledge" | "skill" | "attitude";  // Bloom's taxonomy category
+  weight: number;                       // Scoring weight (1-10)
+}
+
+/**
+ * Scenario Node Types
+ * 
+ * Different types of nodes in the visual scenario builder.
+ */
+export type ScenarioNodeType = 
+  | "opening"      // Avatar's first message
+  | "dialogue"     // Avatar speaks
+  | "question"     // Avatar asks student something
+  | "listen"       // Wait for student response
+  | "branch"       // Route based on response
+  | "feedback"     // Provide guidance
+  | "checkpoint"   // Score a learning objective
+  | "ending";      // Conclude scenario
+
+/**
+ * Branch Condition Interface
+ * 
+ * Defines conditions for branching logic.
+ */
+export interface BranchCondition {
+  id: string;                           // Unique condition identifier
+  type: "keyword" | "intent" | "sentiment" | "default";
+  value?: string;                       // Keyword or intent to match
+  targetNodeId: string;                 // Node to go to if condition matches
+}
+
+/**
+ * Scenario Node Interface
+ * 
+ * Represents a single node in the scenario flow.
+ */
+export interface ScenarioNode {
+  id: string;                           // Unique node identifier
+  type: ScenarioNodeType;               // Type of node
+  label: string;                        // Display label in builder
+  content: string;                      // Main content (dialogue text, question, etc.)
+  
+  // Position in visual builder
+  position: {
+    x: number;
+    y: number;
+  };
+  
+  // Node-specific configuration
+  config: {
+    // For "listen" nodes
+    timeout?: number;                   // Seconds to wait before fallback
+    fallbackMessage?: string;           // Message if timeout
+    
+    // For "branch" nodes
+    conditions?: BranchCondition[];     // Branching conditions
+    
+    // For "checkpoint" nodes
+    objectiveId?: string;               // Learning objective to score
+    scoringCriteria?: string;           // How to evaluate
+    
+    // For "feedback" nodes
+    feedbackType?: "positive" | "negative" | "neutral";
+    
+    // For "question" nodes
+    expectedPatterns?: string[];        // Expected answer patterns
+    hints?: string[];                   // Hints to provide
+  };
+  
+  // Connections to other nodes
+  nextNodeId?: string;                  // Default next node (for linear flow)
+}
+
+/**
+ * Scenario Edge Interface
+ * 
+ * Represents a connection between two nodes in the visual builder.
+ */
+export interface ScenarioEdge {
+  id: string;                           // Unique edge identifier
+  sourceNodeId: string;                 // Starting node
+  targetNodeId: string;                 // Ending node
+  label?: string;                       // Optional label for the edge
+  conditionId?: string;                 // For branch nodes, which condition this edge represents
+}
+
+/**
+ * Avatar Persona Configuration
+ * 
+ * Case-specific avatar personality settings.
+ */
+export interface AvatarPersonaConfig {
+  baseAvatarId: string;                 // Reference to base avatar
+  caseContext: string;                  // Case-specific context to inject
+  personalityTraits: {
+    formality: number;                  // 1-10: Casual to Formal
+    patience: number;                   // 1-10: Quick to Patient
+    empathy: number;                    // 1-10: Neutral to Empathetic
+    directness: number;                 // 1-10: Indirect to Direct
+  };
+  knowledgeBoundaries: {
+    canDiscuss: string[];               // Topics the avatar can discuss
+    cannotDiscuss: string[];            // Topics to avoid
+  };
+}
+
+/**
+ * Guardrails Configuration for Case
+ * 
+ * Safety and content filtering settings.
+ */
+export interface CaseGuardrails {
+  blockedTopics: string[];              // Topics to block
+  offTopicResponse: string;             // Response when off-topic
+  maxResponseLength: number;            // Maximum response length
+  requireFactCheck: boolean;            // Whether to fact-check responses
+}
+
+/**
+ * Case Interface
+ * 
+ * Main case/scenario entity that professors create.
+ * Contains all configuration for a learning scenario.
+ */
+export interface Case {
+  id: string;                           // Unique case identifier
+  courseId: string;                     // Parent course ID
+  name: string;                         // Case name
+  description: string;                  // Case description
+  
+  // Case metadata
+  difficulty: "beginner" | "intermediate" | "advanced";
+  estimatedDuration: number;            // Minutes
+  status: "draft" | "published" | "archived";
+  
+  // Learning objectives
+  learningObjectives: LearningObjective[];
+  
+  // Scenario structure
+  nodes: ScenarioNode[];                // All nodes in the scenario
+  edges: ScenarioEdge[];                // Connections between nodes
+  startNodeId: string;                  // ID of the starting node
+  
+  // Avatar configuration
+  avatarConfig: AvatarPersonaConfig;
+  
+  // Safety settings
+  guardrails: CaseGuardrails;
+  
+  // Audit fields
+  createdBy: string;                    // Professor ID
+  createdByName: string;                // Professor name
+  lastEditedBy: string;                 // Last editor ID
+  lastEditedByName: string;             // Last editor name
+  createdAt: string;                    // ISO timestamp
+  updatedAt: string;                    // ISO timestamp
+  publishedAt?: string;                 // ISO timestamp when published
+}
+
+/**
+ * Case Session Interface
+ * 
+ * Runtime session when a student interacts with a case.
+ * Extends the base ChatSession with case-specific data.
+ */
+export interface CaseSession {
+  id: string;                           // Session ID
+  caseId: string;                       // Case being run
+  courseId: string;                     // Parent course
+  
+  // Current state
+  currentNodeId: string;                // Current position in scenario
+  visitedNodeIds: string[];             // Nodes visited so far
+  
+  // Scoring
+  objectiveScores: Record<string, number>;  // Scores per objective
+  totalScore: number;                   // Overall score
+  
+  // Session metadata
+  studentId?: string;                   // Optional student identifier
+  kioskId?: string;                     // Kiosk identifier
+  startTime: number;                    // Unix timestamp
+  endTime?: number;                     // Unix timestamp when completed
+  completionStatus: "in_progress" | "completed" | "abandoned";
+  
+  // Chat history (extends ChatMessage with node tracking)
+  messages: Array<ChatMessage & {
+    nodeId?: string;                    // Which node triggered this message
+    scoreDelta?: number;                // Score change from this message
+  }>;
+  
+  createdAt: string;
+  updatedAt: string;
+}
+
+/**
+ * Case Analytics Summary
+ * 
+ * Aggregated analytics for a case.
+ */
+export interface CaseAnalytics {
+  caseId: string;
+  totalSessions: number;
+  completedSessions: number;
+  averageScore: number;
+  averageDuration: number;              // Minutes
+  objectiveSuccessRates: Record<string, number>;  // Percentage per objective
+  commonMistakes: Array<{
+    nodeId: string;
+    description: string;
+    frequency: number;
+  }>;
+  lastUpdated: string;
+}
