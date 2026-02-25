@@ -12,7 +12,7 @@ import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter } from "@herou
 import { 
   ArrowLeft, Loader2, Save, Play, Globe, Settings, Target, 
   MessageSquare, Shield, Plus, Trash2, GripVertical, Check,
-  AlertCircle, X, Pencil
+  AlertCircle, X, Pencil, Users, ExternalLink
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
@@ -297,6 +297,10 @@ export default function CaseEditorPage({
             <Shield className="w-4 h-4" />
             Guardrails
           </TabButton>
+          <TabButton isActive={activeTab === "avatars"} onClick={() => setActiveTab("avatars")}>
+            <Users className="w-4 h-4" />
+            Linked Avatars
+          </TabButton>
         </div>
 
         {/* Tab Content */}
@@ -329,6 +333,13 @@ export default function CaseEditorPage({
           <GuardrailsEditor
             guardrails={caseData.guardrails}
             onChange={(guardrails) => handleCaseUpdate({ guardrails })}
+          />
+        )}
+
+        {activeTab === "avatars" && (
+          <LinkedAvatarsPanel
+            courseId={courseId}
+            caseId={caseId}
           />
         )}
       </div>
@@ -722,5 +733,149 @@ function GuardrailsEditor({
         </CardBody>
       </Card>
     </div>
+  );
+}
+
+// Linked Avatars Panel Component
+function LinkedAvatarsPanel({
+  courseId,
+  caseId,
+}: {
+  courseId: string;
+  caseId: string;
+}) {
+  const router = useRouter();
+  const [avatars, setAvatars] = useState<Array<{
+    id: string;
+    name: string;
+    description?: string;
+    published?: boolean;
+    lastEditedAt: string;
+  }>>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    async function fetchLinkedAvatars() {
+      try {
+        const response = await fetch(`/api/cases/${caseId}/linked-avatars?courseId=${courseId}`);
+        const data = await response.json();
+        
+        if (response.ok) {
+          setAvatars(data.avatars);
+        } else {
+          setError(data.error || "Failed to fetch linked avatars");
+        }
+      } catch (err) {
+        setError("Failed to fetch linked avatars");
+        console.error(err);
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    fetchLinkedAvatars();
+  }, [courseId, caseId]);
+
+  if (loading) {
+    return (
+      <Card>
+        <CardBody className="flex items-center justify-center py-12">
+          <Loader2 className="w-6 h-6 animate-spin text-primary" />
+          <span className="ml-2 text-default-500">Loading linked avatars...</span>
+        </CardBody>
+      </Card>
+    );
+  }
+
+  return (
+    <Card>
+      <CardHeader className="flex justify-between items-center">
+        <div>
+          <h3 className="text-lg font-semibold">Linked Avatars</h3>
+          <p className="text-sm text-default-500">
+            Avatars that are using this case for their conversation flow
+          </p>
+        </div>
+        <Button
+          color="primary"
+          size="sm"
+          startContent={<Plus className="w-4 h-4" />}
+          onPress={() => router.push("/demo-avatars")}
+        >
+          Link New Avatar
+        </Button>
+      </CardHeader>
+      <CardBody>
+        {error && (
+          <div className="bg-danger-50 border border-danger-200 rounded-lg p-4 mb-4">
+            <p className="text-danger-700">{error}</p>
+          </div>
+        )}
+
+        {avatars.length === 0 ? (
+          <div className="text-center py-12">
+            <Users className="w-12 h-12 mx-auto mb-4 text-default-300" />
+            <h4 className="text-lg font-medium mb-2">No Avatars Linked</h4>
+            <p className="text-default-500 mb-4">
+              No avatars are currently using this case. Link an avatar to use this case's scenario.
+            </p>
+            <Button
+              color="primary"
+              variant="flat"
+              onPress={() => router.push("/demo-avatars")}
+            >
+              Go to Avatars
+            </Button>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {avatars.map((avatar) => (
+              <div
+                key={avatar.id}
+                className="flex items-center justify-between p-4 bg-default-50 rounded-lg hover:bg-default-100 transition-colors"
+              >
+                <div className="flex items-center gap-4">
+                  <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
+                    <span className="text-primary font-semibold">
+                      {avatar.name.charAt(0).toUpperCase()}
+                    </span>
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h4 className="font-medium">{avatar.name}</h4>
+                      <Chip
+                        size="sm"
+                        variant="flat"
+                        color={avatar.published ? "success" : "warning"}
+                      >
+                        {avatar.published ? "Published" : "Draft"}
+                      </Chip>
+                    </div>
+                    {avatar.description && (
+                      <p className="text-sm text-default-500 line-clamp-1">
+                        {avatar.description}
+                      </p>
+                    )}
+                    <p className="text-xs text-default-400">
+                      Last edited: {new Date(avatar.lastEditedAt).toLocaleDateString()}
+                    </p>
+                  </div>
+                </div>
+                <Button
+                  size="sm"
+                  variant="flat"
+                  color="primary"
+                  startContent={<ExternalLink className="w-4 h-4" />}
+                  onPress={() => router.push(`/demo-avatars/edit/${avatar.id}`)}
+                >
+                  Edit Avatar
+                </Button>
+              </div>
+            ))}
+          </div>
+        )}
+      </CardBody>
+    </Card>
   );
 }
