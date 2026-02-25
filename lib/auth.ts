@@ -118,6 +118,15 @@ const MOCK_USERS = [
     role: "user",
     authProvider: "email" as const,
   },
+  {
+    id: "3",
+    email: "student@case.edu",
+    password: "student123", // In production, this should be hashed
+    name: "Jane Smith",
+    role: "student",
+    studentId: "jxs456",
+    authProvider: "email" as const,
+  },
 ];
 
 // Store for CWRU SSO users (in production, use actual database)

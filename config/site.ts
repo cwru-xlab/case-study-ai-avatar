@@ -39,11 +39,18 @@ export const siteConfig = {
       href: "/cta-management",
       icon: "Mail",
     },
-    // {
-    //   label: "About",
-    //   href: "/about",
-    //   icon: "Info",
-    // },
+  ],
+  studentNavItems: [
+    {
+      label: "My Cases",
+      href: "/student-cases",
+      icon: "Briefcase",
+    },
+    {
+      label: "Settings",
+      href: "/student-cases/settings",
+      icon: "Settings",
+    },
   ],
   // JWT and Authentication Configuration
   auth: {

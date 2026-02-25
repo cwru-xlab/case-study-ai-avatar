@@ -1,5 +1,7 @@
 "use client";
 
+import { useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { Snippet } from "@heroui/snippet";
 import { Code } from "@heroui/code";
 import { Button } from "@heroui/button";
@@ -10,6 +12,13 @@ import Avatar from "boring-avatars";
 
 export default function Home() {
   const { user, loading } = useAuth();
+  const router = useRouter();
+
+  useEffect(() => {
+    if (!loading && user?.role === "student") {
+      router.replace("/student-cases");
+    }
+  }, [user, loading, router]);
 
   const launchKioskMode = () => {
     // Open both kiosk pages in new windows

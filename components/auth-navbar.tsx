@@ -80,7 +80,10 @@ export const AuthNavbar = () => {
           <>
             {/* Desktop Navigation */}
             <ul className="hidden xl:flex gap-4 justify-start ml-2">
-              {siteConfig.navItems.map((item) => {
+              {(user.role === "student"
+                ? siteConfig.studentNavItems
+                : siteConfig.navItems
+              ).map((item) => {
                 const IconComponent =
                   iconMap[item.icon as keyof typeof iconMap];
                 const isActive = pathname === item.href;
@@ -120,7 +123,11 @@ export const AuthNavbar = () => {
             {/* Mobile/Narrow Screen Dropdown */}
             <div className="xl:hidden relative group">
               {(() => {
-                const currentItem = siteConfig.navItems.find(
+                const navItems =
+                  user.role === "student"
+                    ? siteConfig.studentNavItems
+                    : siteConfig.navItems;
+                const currentItem = navItems.find(
                   (item) => item.href === pathname
                 );
                 const CurrentIcon = currentItem
@@ -140,7 +147,10 @@ export const AuthNavbar = () => {
               {/* Dropdown Menu */}
               <div className="absolute top-full left-0 mt-1 bg-background border border-divider rounded-lg shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50 min-w-48">
                 <ul className="py-2">
-                  {siteConfig.navItems.map((item) => {
+                  {(user.role === "student"
+                    ? siteConfig.studentNavItems
+                    : siteConfig.navItems
+                  ).map((item) => {
                     const IconComponent =
                       iconMap[item.icon as keyof typeof iconMap];
                     const isActive = pathname === item.href;

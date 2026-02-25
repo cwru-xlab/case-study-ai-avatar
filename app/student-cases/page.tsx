@@ -7,6 +7,7 @@ import { Button } from "@heroui/button";
 import { Briefcase, Plus, Calendar, User } from "lucide-react";
 
 import { title } from "@/components/primitives";
+import { useAuth } from "@/lib/auth-context";
 
 interface StudentCase {
   id: string;
@@ -58,6 +59,7 @@ const statusConfig = {
 };
 
 export default function StudentCasesPage() {
+  const { user } = useAuth();
   const [cases, setCases] = useState<StudentCase[]>(mockCases);
   const [caseCode, setCaseCode] = useState("");
   const [isAdding, setIsAdding] = useState(false);
@@ -87,7 +89,9 @@ export default function StudentCasesPage() {
   return (
     <div className="flex flex-col gap-8">
       <div className="flex flex-col gap-2">
-        <h1 className={title()}>My Cases</h1>
+        <h1 className={title()}>
+          {user?.name ? `${user.name}'s Cases` : "My Cases"}
+        </h1>
         <p className="text-default-500">
           View your assigned cases and add new ones using a case code.
         </p>

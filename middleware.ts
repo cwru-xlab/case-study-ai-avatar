@@ -168,6 +168,10 @@ const KIOSK_ROUTES: string[] = [
   "/api/audio/transcribe",
 ];
 
+const STUDENT_ROUTES: string[] = [
+  "/student-cases",
+];
+
 /**
  * MAIN MIDDLEWARE FUNCTION
  *
@@ -257,6 +261,32 @@ export async function middleware(request: NextRequest) {
 
     // Extract user role from JWT payload
     const userRole = payload.role as string;
+
+    /**
+     * STUDENT ROUTE AUTHORIZATION
+     *
+     * For student-specific routes, allows student and admin users.
+     */
+    const isStudentRoute = STUDENT_ROUTES.some((route) =>
+      pathname.startsWith(route)
+    );
+
+    if (isStudentRoute) {
+      if (userRole !== "student" && userRole !== "admin") {
+        if (pathname.startsWith("/api/")) {
+          return NextResponse.json(
+            { error: "Access denied: student or admin role required" },
+            { status: 403 }
+          );
+        } else {
+          return NextResponse.redirect(
+            new URL("/?error=access_denied", request.url)
+          );
+        }
+      } else {
+        return NextResponse.next();
+      }
+    }
 
     /**
      * KIOSK ROUTE AUTHORIZATION

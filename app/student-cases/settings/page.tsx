@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Card, CardBody, CardHeader } from "@heroui/card";
 import { Input } from "@heroui/input";
 import { Button } from "@heroui/button";
@@ -9,6 +9,7 @@ import { Divider } from "@heroui/divider";
 import { User, Mail, Bell, LogOut } from "lucide-react";
 
 import { title } from "@/components/primitives";
+import { useAuth } from "@/lib/auth-context";
 
 interface UserProfile {
   firstName: string;
@@ -24,11 +25,13 @@ interface NotificationSettings {
 }
 
 export default function StudentSettingsPage() {
+  const { user, logout } = useAuth();
+
   const [profile, setProfile] = useState<UserProfile>({
-    firstName: "John",
-    lastName: "Doe",
-    email: "jdoe@case.edu",
-    studentId: "jxd123",
+    firstName: "",
+    lastName: "",
+    email: "",
+    studentId: "",
   });
 
   const [notifications, setNotifications] = useState<NotificationSettings>({
@@ -39,6 +42,18 @@ export default function StudentSettingsPage() {
 
   const [isSaving, setIsSaving] = useState(false);
 
+  useEffect(() => {
+    if (user) {
+      const nameParts = user.name.split(" ");
+      setProfile({
+        firstName: nameParts[0] || "",
+        lastName: nameParts.slice(1).join(" ") || "",
+        email: user.email,
+        studentId: user.studentId || "",
+      });
+    }
+  }, [user]);
+
   const handleSave = () => {
     setIsSaving(true);
     setTimeout(() => {
@@ -47,8 +62,7 @@ export default function StudentSettingsPage() {
   };
 
   const handleLogout = () => {
-    // Mock logout - would redirect to login page
-    console.log("Logging out...");
+    logout();
   };
 
   return (

@@ -21,8 +21,14 @@ export default function LoginPage() {
     const result = await login(email, password);
 
     if (result.success) {
-      // Login successful, redirect to home page
-      window.location.href = "/";
+      // Login successful, redirect based on role
+      const meResponse = await fetch("/api/auth/me");
+      const meData = await meResponse.json();
+      if (meData.user?.role === "student") {
+        window.location.href = "/student-cases";
+      } else {
+        window.location.href = "/";
+      }
     } else {
       // Login failed, show error
       setError(result.error || "Login failed");
@@ -123,6 +129,9 @@ export default function LoginPage() {
             </p>
             <p className="ml-4">
               <strong>User:</strong> user@example.com / user123
+            </p>
+            <p className="ml-4">
+              <strong>Student:</strong> student@case.edu / student123
             </p>
             <p className="mt-2">
               <strong>CWRU SSO:</strong> Use your Case Western Reserve
