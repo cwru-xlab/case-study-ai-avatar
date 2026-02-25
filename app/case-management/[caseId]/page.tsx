@@ -5,6 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import { Card, CardBody, CardHeader } from "@heroui/card";
 import { Button } from "@heroui/button";
 import { Input, Textarea } from "@heroui/input";
+import { Select, SelectItem } from "@heroui/select";
 import {
   Modal,
   ModalContent,
@@ -18,7 +19,7 @@ import { addToast } from "@heroui/toast";
 import { title as pageTitle } from "@/components/primitives";
 import { useAuth } from "@/lib/auth-context";
 import { caseStorage } from "@/lib/case-storage";
-import type { CaseStudy, CaseAvatar } from "@/types";
+import type { CaseStudy, CaseAvatar, VideoAudioProfile } from "@/types";
 
 export default function CaseDetailPage() {
   const params = useParams();
@@ -33,6 +34,7 @@ export default function CaseDetailPage() {
   const [backgroundInfo, setBackgroundInfo] = useState("");
   const [avatars, setAvatars] = useState<CaseAvatar[]>([]);
 
+  const [availableProfiles, setAvailableProfiles] = useState<VideoAudioProfile[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -63,6 +65,21 @@ export default function CaseDetailPage() {
       JSON.stringify(avatars) !== originalValues.avatars
     );
   }, [name, backgroundInfo, avatars, originalValues]);
+
+  useEffect(() => {
+    const loadProfiles = async () => {
+      try {
+        const response = await fetch("/api/profile/list");
+        if (response.ok) {
+          const data = await response.json();
+          setAvailableProfiles(data.profiles || []);
+        }
+      } catch (error) {
+        console.error("Failed to load profiles:", error);
+      }
+    };
+    loadProfiles();
+  }, []);
 
   useEffect(() => {
     const loadCase = async () => {
@@ -335,7 +352,7 @@ export default function CaseDetailPage() {
                       <div className="flex-1 grid grid-cols-1 md:grid-cols-2 gap-3">
                         <Input
                           label="Avatar Name"
-                          placeholder="e.g., Sarah Chen - CEO"
+                          placeholder="e.g., Sarah Chen"
                           size="sm"
                           value={avatar.name}
                           onValueChange={(val) =>
@@ -364,14 +381,43 @@ export default function CaseDetailPage() {
                       </Button>
                     </div>
 
+                    <Select
+                      label="Avatar Profile"
+                      placeholder="Select an avatar profile"
+                      description="Links this role to a video/audio avatar profile"
+                      selectedKeys={avatar.avatarProfileId ? [avatar.avatarProfileId] : []}
+                      onSelectionChange={(keys) => {
+                        const profileId = Array.from(keys)[0] as string | undefined;
+                        updateAvatar(avatar.id, { avatarProfileId: profileId || undefined });
+                      }}
+                    >
+                      {availableProfiles.map((profile) => (
+                        <SelectItem key={profile.id}>
+                          {profile.name}
+                        </SelectItem>
+                      ))}
+                    </Select>
+
                     <Textarea
                       label="Additional Background Information"
                       maxRows={8}
                       minRows={3}
-                      placeholder="Add specific context or background for this avatar in this case..."
+                      placeholder="Add specific context or background for this role in this case..."
                       value={avatar.additionalInfo}
                       onValueChange={(val) =>
                         updateAvatar(avatar.id, { additionalInfo: val })
+                      }
+                    />
+
+                    <Textarea
+                      label="System Prompt"
+                      description="The AI persona instructions for this role (used when students chat with this character)"
+                      maxRows={12}
+                      minRows={4}
+                      placeholder="You are [Name], the [Role] of [Company]. You are..."
+                      value={avatar.systemPrompt || ""}
+                      onValueChange={(val) =>
+                        updateAvatar(avatar.id, { systemPrompt: val })
                       }
                     />
                   </div>

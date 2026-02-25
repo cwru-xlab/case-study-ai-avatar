@@ -153,6 +153,8 @@ const ADMIN_ROUTES = [
   "/api/case/list",
   // Student History routes
   "/student-history",
+  // Seed data endpoint
+  "/api/seed",
 ];
 
 /**
@@ -185,6 +187,15 @@ const KIOSK_ROUTES: string[] = [
 
 const STUDENT_ROUTES: string[] = [
   "/student-cases",
+  "/api/case/get",
+  "/api/case/list",
+  "/api/profile/get",
+  "/api/profile/list",
+  "/api/llm/preview",
+  "/api/avatar/get-access-token",
+  "/api/avatar/interrupt",
+  "/api/audio/transcribe",
+  "/api/seed",
 ];
 
 /**

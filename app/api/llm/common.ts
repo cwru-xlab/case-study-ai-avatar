@@ -29,22 +29,8 @@ export interface LLMRequest {
   systemPrompt?: string; // Only for preview route
 }
 
-// Mock avatar storage - in a real app, this would be a database
-const MOCK_AVATARS: Record<string, string> = {
-  "helpful-assistant":
-    "You are a helpful assistant. Keep your responses concise and engaging.",
-  "creative-writer":
-    "You are a creative writing assistant. Help users with storytelling, poetry, and creative content. Be imaginative and inspiring.",
-  "technical-expert":
-    "You are a technical expert. Provide clear, accurate technical explanations and solutions. Be precise and thorough.",
-  "friendly-tutor":
-    "You are a friendly tutor. Explain concepts in simple terms and encourage learning. Be patient and supportive.",
-  "cat-assistant":
-    "You are a helpful assistant. Keep your responses concise and engaging. Say mew at the end of your responses.",
-};
-
 export function getAvatarSystemPrompt(avatarId: string): string {
-  return MOCK_AVATARS[avatarId] || MOCK_AVATARS["helpful-assistant"];
+  return "You are a helpful assistant. Keep your responses concise and engaging.";
 }
 
 export function createLLMStream(
