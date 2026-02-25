@@ -193,6 +193,8 @@ export interface CaseAvatar {
   name: string;
   role: string;
   additionalInfo: string;
+  avatarProfileId?: string;
+  systemPrompt?: string;
 }
 
 export interface CaseStudy {
