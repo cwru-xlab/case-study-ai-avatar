@@ -46,6 +46,9 @@ export interface Avatar {
     maxResponseLength: number;
     requireFactCheck: boolean;
   };
+  // Linked case (from courses system)
+  linkedCaseId?: string;
+  linkedCourseId?: string;
 }
 
 // Version tracking

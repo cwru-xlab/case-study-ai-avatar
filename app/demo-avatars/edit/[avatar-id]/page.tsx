@@ -12,7 +12,7 @@ import { Switch } from "@heroui/switch";
 import { 
   ArrowLeft, Save, Trash2, Globe, FileText, Loader2, Play,
   MessageSquare, Target, Settings, Shield, Plus, GripVertical,
-  Check, AlertCircle
+  Check, AlertCircle, Link, ExternalLink
 } from "lucide-react";
 import AvatarImage from "@/components/AvatarImage";
 import ScenarioBuilder from "@/components/case-editor/ScenarioBuilder";
@@ -48,6 +48,19 @@ interface Avatar {
     maxResponseLength: number;
     requireFactCheck: boolean;
   };
+  // Linked case
+  linkedCaseId?: string;
+  linkedCourseId?: string;
+}
+
+interface LinkedCase {
+  id: string;
+  courseId: string;
+  courseName: string;
+  name: string;
+  description: string;
+  difficulty: string;
+  status: string;
 }
 
 // Tab Button component
@@ -114,6 +127,12 @@ export default function EditAvatarPage() {
     requireFactCheck: false,
   });
 
+  // Linked case state
+  const [linkedCaseId, setLinkedCaseId] = useState<string>("");
+  const [linkedCourseId, setLinkedCourseId] = useState<string>("");
+  const [availableCases, setAvailableCases] = useState<LinkedCase[]>([]);
+  const [loadingCases, setLoadingCases] = useState(false);
+
   const autoSaveTimer = useRef<NodeJS.Timeout | null>(null);
 
   // Fetch avatar on mount
@@ -144,6 +163,10 @@ export default function EditAvatarPage() {
         if (av.caseContext) setCaseContext(av.caseContext);
         if (av.personalityTraits) setPersonalityTraits(av.personalityTraits);
         if (av.guardrails) setGuardrails(av.guardrails);
+        
+        // Load linked case data
+        if (av.linkedCaseId) setLinkedCaseId(av.linkedCaseId);
+        if (av.linkedCourseId) setLinkedCourseId(av.linkedCourseId);
         
         // Initialize default nodes if none exist
         if (!av.scenarioNodes || av.scenarioNodes.length === 0) {
@@ -185,6 +208,25 @@ export default function EditAvatarPage() {
     fetchAvatar();
   }, [avatarId]);
 
+  // Fetch available cases
+  useEffect(() => {
+    async function fetchCases() {
+      setLoadingCases(true);
+      try {
+        const response = await fetch("/api/cases");
+        const data = await response.json();
+        if (response.ok && data.cases) {
+          setAvailableCases(data.cases);
+        }
+      } catch (err) {
+        console.error("Failed to fetch cases:", err);
+      } finally {
+        setLoadingCases(false);
+      }
+    }
+    fetchCases();
+  }, []);
+
   const handleSave = useCallback(async () => {
     if (!avatar) return;
 
@@ -210,6 +252,9 @@ export default function EditAvatarPage() {
           caseContext,
           personalityTraits,
           guardrails,
+          // Linked case fields
+          linkedCaseId: linkedCaseId || null,
+          linkedCourseId: linkedCourseId || null,
         }),
       });
 
@@ -229,7 +274,7 @@ export default function EditAvatarPage() {
     } finally {
       setSaving(false);
     }
-  }, [avatar, avatarId, name, systemPrompt, description, scenarioNodes, scenarioEdges, startNodeId, learningObjectives, difficulty, estimatedDuration, caseContext, personalityTraits, guardrails]);
+  }, [avatar, avatarId, name, systemPrompt, description, scenarioNodes, scenarioEdges, startNodeId, learningObjectives, difficulty, estimatedDuration, caseContext, personalityTraits, guardrails, linkedCaseId, linkedCourseId]);
 
   // Auto-save on changes
   const triggerAutoSave = useCallback(() => {
@@ -380,6 +425,109 @@ export default function EditAvatarPage() {
                   <label className="block text-sm font-medium mb-2">Duration: {estimatedDuration} min</label>
                   <Slider size="sm" step={5} minValue={5} maxValue={60} value={estimatedDuration} onChange={(v) => { setEstimatedDuration(v as number); triggerAutoSave(); }} className="mt-4" />
                 </div>
+              </div>
+              
+              {/* Linked Case Section */}
+              <div className="border-t border-default-200 pt-6">
+                <div className="flex items-center gap-2 mb-4">
+                  <Link className="w-5 h-5 text-primary" />
+                  <h3 className="text-lg font-semibold">Linked Case</h3>
+                </div>
+                <p className="text-sm text-default-500 mb-4">
+                  Link this avatar to an existing case from the courses system. This allows the avatar to use the case's scenario and learning objectives.
+                </p>
+                
+                {loadingCases ? (
+                  <div className="flex items-center gap-2 text-default-500">
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Loading available cases...
+                  </div>
+                ) : availableCases.length === 0 ? (
+                  <div className="bg-default-100 rounded-lg p-4 text-center">
+                    <p className="text-default-500">No cases available. Create a case in the Courses section first.</p>
+                    <Button 
+                      size="sm" 
+                      variant="flat" 
+                      className="mt-2"
+                      onPress={() => router.push("/courses")}
+                    >
+                      Go to Courses
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    <Select
+                      label="Select a Case"
+                      placeholder="Choose a case to link..."
+                      selectedKeys={linkedCaseId ? [`${linkedCourseId}|${linkedCaseId}`] : []}
+                      onSelectionChange={(keys) => {
+                        const selected = Array.from(keys)[0] as string;
+                        if (selected) {
+                          const [courseId, caseId] = selected.split("|");
+                          setLinkedCourseId(courseId);
+                          setLinkedCaseId(caseId);
+                        } else {
+                          setLinkedCourseId("");
+                          setLinkedCaseId("");
+                        }
+                        triggerAutoSave();
+                      }}
+                      variant="bordered"
+                    >
+                      {availableCases.map((c) => (
+                        <SelectItem 
+                          key={`${c.courseId}|${c.id}`}
+                          textValue={`${c.courseName} - ${c.name}`}
+                        >
+                          <div className="flex flex-col">
+                            <span className="font-medium">{c.name}</span>
+                            <span className="text-xs text-default-400">
+                              {c.courseName} • {c.difficulty} • {c.status}
+                            </span>
+                          </div>
+                        </SelectItem>
+                      ))}
+                    </Select>
+                    
+                    {linkedCaseId && (
+                      <div className="bg-primary-50 border border-primary-200 rounded-lg p-4">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="font-medium text-primary-700">
+                              {availableCases.find(c => c.id === linkedCaseId)?.name || "Linked Case"}
+                            </p>
+                            <p className="text-sm text-primary-600">
+                              {availableCases.find(c => c.id === linkedCaseId)?.courseName}
+                            </p>
+                          </div>
+                          <div className="flex gap-2">
+                            <Button
+                              size="sm"
+                              variant="flat"
+                              color="primary"
+                              startContent={<ExternalLink className="w-4 h-4" />}
+                              onPress={() => router.push(`/courses/${linkedCourseId}/cases/${linkedCaseId}`)}
+                            >
+                              View Case
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="flat"
+                              color="danger"
+                              onPress={() => {
+                                setLinkedCaseId("");
+                                setLinkedCourseId("");
+                                triggerAutoSave();
+                              }}
+                            >
+                              Unlink
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             </CardBody>
           </Card>

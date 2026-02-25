@@ -96,6 +96,9 @@ export async function PUT(
       caseContext: body.caseContext !== undefined ? body.caseContext : existingAvatar.caseContext,
       personalityTraits: body.personalityTraits !== undefined ? body.personalityTraits : existingAvatar.personalityTraits,
       guardrails: body.guardrails !== undefined ? body.guardrails : existingAvatar.guardrails,
+      // Linked case fields
+      linkedCaseId: body.linkedCaseId !== undefined ? body.linkedCaseId : existingAvatar.linkedCaseId,
+      linkedCourseId: body.linkedCourseId !== undefined ? body.linkedCourseId : existingAvatar.linkedCourseId,
     };
 
     const version = await s3Storage.saveAvatar(updatedAvatar);
@@ -163,6 +166,9 @@ export async function PATCH(
     if (body.caseContext !== undefined) updatedAvatar.caseContext = body.caseContext;
     if (body.personalityTraits !== undefined) updatedAvatar.personalityTraits = body.personalityTraits;
     if (body.guardrails !== undefined) updatedAvatar.guardrails = body.guardrails;
+    // Linked case fields
+    if (body.linkedCaseId !== undefined) updatedAvatar.linkedCaseId = body.linkedCaseId;
+    if (body.linkedCourseId !== undefined) updatedAvatar.linkedCourseId = body.linkedCourseId;
 
     const version = await s3Storage.saveAvatar(updatedAvatar);
 

@@ -5,11 +5,12 @@
  * GET - Get a single case
  * PUT - Update a case (full update)
  * PATCH - Partial update (for auto-save)
- * DELETE - Delete a case
+ * DELETE - Delete a case (also unlinks any avatars referencing this case)
  */
 
 import { NextRequest, NextResponse } from "next/server";
 import { caseStorage, courseStorage } from "@/lib/case-storage";
+import { s3Storage } from "@/lib/s3-client";
 
 export async function GET(
   request: NextRequest,
@@ -104,6 +105,32 @@ export async function DELETE(
         { error: "Case not found" },
         { status: 404 }
       );
+    }
+
+    // Cascade unlink: Find all avatars linked to this case and unlink them
+    try {
+      const allAvatars = await s3Storage.listAllAvatars();
+      const linkedAvatars = allAvatars.filter(
+        avatar => avatar.linkedCaseId === caseId && avatar.linkedCourseId === courseId
+      );
+      
+      // Unlink each avatar
+      for (const avatar of linkedAvatars) {
+        await s3Storage.saveAvatar({
+          ...avatar,
+          linkedCaseId: undefined,
+          linkedCourseId: undefined,
+          lastEditedAt: new Date().toISOString(),
+        });
+        console.log(`Unlinked avatar "${avatar.name}" (${avatar.id}) from deleted case ${caseId}`);
+      }
+      
+      if (linkedAvatars.length > 0) {
+        console.log(`Cascade unlink: ${linkedAvatars.length} avatar(s) unlinked from case ${caseId}`);
+      }
+    } catch (unlinkError) {
+      console.error("Error during cascade unlink:", unlinkError);
+      // Continue with deletion even if unlink fails
     }
 
     await caseStorage.deleteCase(courseId, caseId);
