@@ -1,6 +1,6 @@
 import { openDB, DBSchema, IDBPDatabase } from "idb";
 
-import type { ConversationStarter, StartAvatarRequest } from "../types";
+import type { ConversationStarter, StartAvatarRequest, ScenarioNode, ScenarioEdge, LearningObjective } from "../types";
 import type { SpeechPatternAnalysis } from "./speech-analysis";
 
 // Core avatar data structure
@@ -26,6 +26,26 @@ export interface Avatar {
     type: "audio" | "transcript" | "pdf";
     uploadedAt: string;
   }>;
+  // Case authoring fields
+  scenarioNodes?: ScenarioNode[];
+  scenarioEdges?: ScenarioEdge[];
+  startNodeId?: string;
+  learningObjectives?: LearningObjective[];
+  difficulty?: "beginner" | "intermediate" | "advanced";
+  estimatedDuration?: number;
+  caseContext?: string;
+  personalityTraits?: {
+    formality: number;
+    patience: number;
+    empathy: number;
+    directness: number;
+  };
+  guardrails?: {
+    blockedTopics: string[];
+    offTopicResponse: string;
+    maxResponseLength: number;
+    requireFactCheck: boolean;
+  };
 }
 
 // Version tracking

@@ -10,11 +10,6 @@ export const siteConfig = {
       icon: "Home",
     },
     {
-      label: "Case Authoring",
-      href: "/courses",
-      icon: "GraduationCap",
-    },
-    {
       label: "System Settings",
       href: "/system-settings",
       icon: "Settings",
