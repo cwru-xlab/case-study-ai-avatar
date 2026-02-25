@@ -193,6 +193,8 @@ const STUDENT_ROUTES: string[] = [
   "/api/profile/list",
   "/api/llm/preview",
   "/api/avatar/get-access-token",
+  "/api/avatar/interrupt",
+  "/api/audio/transcribe",
   "/api/seed",
 ];
 
