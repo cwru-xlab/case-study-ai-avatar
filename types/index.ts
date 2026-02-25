@@ -184,6 +184,30 @@ export interface ChatSession {
 
 /**
  * ==================================================================================
+ * CASE MANAGEMENT TYPES
+ * ==================================================================================
+ */
+
+export interface CaseAvatar {
+  id: string;
+  name: string;
+  role: string;
+  additionalInfo: string;
+}
+
+export interface CaseStudy {
+  id: string;
+  name: string;
+  backgroundInfo: string;
+  avatars: CaseAvatar[];
+  createdBy: string;
+  lastEditedBy: string;
+  createdAt: string;
+  lastEditedAt: string;
+}
+
+/**
+ * ==================================================================================
  * CALL TO ACTION (CTA) TYPES - NEW IMPLEMENTATION
  * ==================================================================================
  * 

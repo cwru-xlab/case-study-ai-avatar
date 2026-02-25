@@ -26,6 +26,7 @@ import {
   Mail,
   Video,
   Briefcase,
+  History,
 } from "lucide-react";
 
 import { siteConfig } from "@/config/site";
@@ -42,6 +43,7 @@ const iconMap = {
   Info,
   Video,
   Briefcase,
+  History,
 } as const;
 
 export const AuthNavbar = () => {

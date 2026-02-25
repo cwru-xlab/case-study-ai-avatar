@@ -39,6 +39,11 @@ export const siteConfig = {
       href: "/cta-management",
       icon: "Mail",
     },
+    {
+      label: "Student History",
+      href: "/student-history",
+      icon: "History",
+    },
   ],
   studentNavItems: [
     {

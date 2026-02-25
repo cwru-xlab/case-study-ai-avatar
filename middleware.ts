@@ -138,6 +138,21 @@ const ADMIN_ROUTES = [
   "/api/cta/generate-qr", // QR code generation for kiosk
   "/cta-management", // CTA admin portal section
   "/api/audio/transcribe",
+  // Profile management API endpoints
+  "/api/profile/add",
+  "/api/profile/edit",
+  "/api/profile/delete",
+  "/api/profile/get",
+  "/api/profile/list",
+  "/avatar-profiles",
+  // Case management API endpoints
+  "/api/case/add",
+  "/api/case/edit",
+  "/api/case/delete",
+  "/api/case/get",
+  "/api/case/list",
+  // Student History routes
+  "/student-history",
 ];
 
 /**
