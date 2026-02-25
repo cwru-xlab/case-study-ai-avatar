@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { demoAvatarStorage, type DemoAvatarInput } from "@/lib/demo-avatar-storage";
+import { s3Storage } from "@/lib/s3-client";
+import type { Avatar } from "@/lib/avatar-storage";
 
-// GET /api/demo-avatars - List all avatars
+// GET /api/demo-avatars - List all avatars from S3
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
@@ -10,22 +11,28 @@ export async function GET(request: NextRequest) {
     const limit = searchParams.get("limit");
     const offset = searchParams.get("offset");
 
-    let filteredAvatars = demoAvatarStorage.getAll();
+    // Fetch all avatars from S3
+    let avatars = await s3Storage.listAllAvatars();
+
+    // Get version manifest for published status
+    const manifest = await s3Storage.getVersionManifest();
+
+    // Enrich avatars with published status from manifest
+    avatars = avatars.map((avatar) => ({
+      ...avatar,
+      published: manifest.avatars[avatar.id]?.published || false,
+    }));
 
     // Filter by published status
     if (published !== null) {
       const isPublished = published === "true";
-      // For demo purposes, first 6 avatars are "published"
-      filteredAvatars = filteredAvatars.filter((avatar) => {
-        const index = demoAvatarStorage.getIndex(avatar.id);
-        return isPublished ? index < 6 : index >= 6;
-      });
+      avatars = avatars.filter((avatar) => avatar.published === isPublished);
     }
 
     // Search by name or description
     if (search) {
       const searchLower = search.toLowerCase();
-      filteredAvatars = filteredAvatars.filter(
+      avatars = avatars.filter(
         (avatar) =>
           avatar.name.toLowerCase().includes(searchLower) ||
           avatar.description?.toLowerCase().includes(searchLower) ||
@@ -34,31 +41,41 @@ export async function GET(request: NextRequest) {
     }
 
     // Pagination
-    const total = filteredAvatars.length;
+    const total = avatars.length;
     const offsetNum = offset ? parseInt(offset, 10) : 0;
-    const limitNum = limit ? parseInt(limit, 10) : filteredAvatars.length;
-    filteredAvatars = filteredAvatars.slice(offsetNum, offsetNum + limitNum);
+    const limitNum = limit ? parseInt(limit, 10) : avatars.length;
+    avatars = avatars.slice(offsetNum, offsetNum + limitNum);
 
     return NextResponse.json({
       success: true,
-      avatars: filteredAvatars,
+      avatars,
       total,
       offset: offsetNum,
       limit: limitNum,
     });
   } catch (error) {
     console.error("Demo avatars list error:", error);
+    
+    if (error instanceof Error) {
+      if (error.message.includes("credentials")) {
+        return NextResponse.json(
+          { error: "S3 configuration error - check AWS credentials" },
+          { status: 500 }
+        );
+      }
+    }
+    
     return NextResponse.json(
-      { error: "Failed to list demo avatars" },
+      { error: "Failed to list avatars" },
       { status: 500 }
     );
   }
 }
 
-// POST /api/demo-avatars - Create a new avatar
+// POST /api/demo-avatars - Create a new avatar in S3
 export async function POST(request: NextRequest) {
   try {
-    const body: DemoAvatarInput = await request.json();
+    const body = await request.json();
 
     // Validate required fields
     if (!body.name || !body.systemPrompt || !body.createdBy) {
@@ -68,31 +85,58 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Generate ID from name to check for duplicates
+    // Generate ID from name
     const id = body.name
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, "-")
       .replace(/^-|-$/g, "");
 
-    // Check if ID already exists
-    if (demoAvatarStorage.exists(id)) {
+    // Check if avatar already exists
+    const exists = await s3Storage.avatarExists(id);
+    if (exists) {
       return NextResponse.json(
         { error: `Avatar with ID '${id}' already exists` },
         { status: 409 }
       );
     }
 
-    const newAvatar = demoAvatarStorage.create(body);
+    const now = new Date().toISOString();
+    const newAvatar: Avatar = {
+      id,
+      name: body.name,
+      systemPrompt: body.systemPrompt,
+      description: body.description,
+      createdBy: body.createdBy,
+      lastEditedBy: body.createdBy,
+      createdAt: now,
+      lastEditedAt: now,
+      published: body.published || false,
+      conversationStarters: body.conversationStarters || [],
+    };
+
+    // Save to S3
+    const version = await s3Storage.saveAvatar(newAvatar);
 
     return NextResponse.json({
       success: true,
       avatar: newAvatar,
+      version,
       message: "Avatar created successfully",
     }, { status: 201 });
   } catch (error) {
     console.error("Demo avatar create error:", error);
+    
+    if (error instanceof Error) {
+      if (error.message.includes("credentials")) {
+        return NextResponse.json(
+          { error: "S3 configuration error - check AWS credentials" },
+          { status: 500 }
+        );
+      }
+    }
+    
     return NextResponse.json(
-      { error: "Failed to create demo avatar" },
+      { error: "Failed to create avatar" },
       { status: 500 }
     );
   }

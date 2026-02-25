@@ -4,24 +4,26 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { Card, CardBody, CardHeader } from "@heroui/card";
 import { Chip } from "@heroui/chip";
 import { Button } from "@heroui/button";
-import { Globe, FileText, User, MessageCircle, Pencil, Search, X, GripVertical } from "lucide-react";
+import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter } from "@heroui/modal";
+import { Globe, FileText, User, MessageCircle, Pencil, Search, X, GripVertical, Loader2, Plus } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { Input } from "@heroui/input";
-import { mockAvatars, getFirstSentence, getRelativeTime } from "@/lib/mock-avatars";
-import type { CachedAvatar } from "@/lib/avatar-storage";
+import { getFirstSentence, getRelativeTime } from "@/lib/mock-avatars";
 import AvatarImage from "@/components/AvatarImage";
 
-// Convert mock avatars to CachedAvatar format with additional fields
-const initialAvatars: CachedAvatar[] = mockAvatars.map((avatar, index) => ({
-  ...avatar,
-  published: index < 6, // First 6 are published
-  portrait: undefined, // Will use boring-avatars fallback
-  title: getTitleForAvatar(avatar.id),
-  conversationStarters: getConversationStartersForAvatar(avatar.id),
-  localVersion: 1,
-  remoteVersion: 1,
-  isDirty: false,
-}));
+interface Avatar {
+  id: string;
+  name: string;
+  systemPrompt: string;
+  description?: string;
+  createdBy: string;
+  lastEditedBy: string;
+  createdAt: string;
+  lastEditedAt: string;
+  published?: boolean;
+  title?: string;
+  conversationStarters?: Array<{ title: string; question: string }>;
+}
 
 function getTitleForAvatar(id: string): string {
   const titles: Record<string, string> = {
@@ -85,13 +87,23 @@ function getConversationStartersForAvatar(id: string): Array<{ title: string; qu
 
 export default function DemoAvatarsPage() {
   const router = useRouter();
-  const [avatars, setAvatars] = useState<CachedAvatar[]>(initialAvatars);
-  const [selectedAvatar, setSelectedAvatar] = useState<CachedAvatar | null>(null);
+  const [avatars, setAvatars] = useState<Avatar[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [selectedAvatar, setSelectedAvatar] = useState<Avatar | null>(null);
   const [filter, setFilter] = useState<"all" | "published" | "draft">("all");
   const [searchQuery, setSearchQuery] = useState("");
   
+  // Create modal state
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [newAvatarName, setNewAvatarName] = useState("");
+  const [newAvatarSystemPrompt, setNewAvatarSystemPrompt] = useState("");
+  const [newAvatarDescription, setNewAvatarDescription] = useState("");
+  const [createError, setCreateError] = useState<string | null>(null);
+  
   // Drag and drop state
-  const [draggedAvatar, setDraggedAvatar] = useState<CachedAvatar | null>(null);
+  const [draggedAvatar, setDraggedAvatar] = useState<Avatar | null>(null);
   const [dragOverId, setDragOverId] = useState<string | null>(null);
   const dragNodeRef = useRef<HTMLDivElement | null>(null);
   
@@ -100,8 +112,40 @@ export default function DemoAvatarsPage() {
   const mouseYRef = useRef<number>(0);
 
   // Auto-scroll configuration
-  const SCROLL_ZONE_HEIGHT = 100; // pixels from edge to trigger scroll
-  const SCROLL_SPEED = 15; // pixels per frame
+  const SCROLL_ZONE_HEIGHT = 100;
+  const SCROLL_SPEED = 15;
+
+  // Fetch avatars from API
+  const fetchAvatars = useCallback(async () => {
+    try {
+      const response = await fetch("/api/demo-avatars");
+      const data = await response.json();
+
+      if (!response.ok) {
+        setError(data.error || "Failed to fetch avatars");
+        return;
+      }
+
+      // Enrich avatars with title and conversation starters
+      const enrichedAvatars = data.avatars.map((avatar: Avatar, index: number) => ({
+        ...avatar,
+        published: index < 6,
+        title: getTitleForAvatar(avatar.id),
+        conversationStarters: getConversationStartersForAvatar(avatar.id),
+      }));
+
+      setAvatars(enrichedAvatars);
+    } catch (err) {
+      setError("Failed to fetch avatars");
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchAvatars();
+  }, [fetchAvatars]);
 
   // Auto-scroll function
   const handleAutoScroll = useCallback(() => {
@@ -109,11 +153,9 @@ export default function DemoAvatarsPage() {
     const windowHeight = window.innerHeight;
     
     if (y < SCROLL_ZONE_HEIGHT) {
-      // Near top - scroll up
       const intensity = 1 - (y / SCROLL_ZONE_HEIGHT);
       window.scrollBy(0, -SCROLL_SPEED * intensity);
     } else if (y > windowHeight - SCROLL_ZONE_HEIGHT) {
-      // Near bottom - scroll down
       const intensity = (y - (windowHeight - SCROLL_ZONE_HEIGHT)) / SCROLL_ZONE_HEIGHT;
       window.scrollBy(0, SCROLL_SPEED * intensity);
     }
@@ -122,7 +164,7 @@ export default function DemoAvatarsPage() {
   // Start auto-scroll interval when dragging
   useEffect(() => {
     if (draggedAvatar) {
-      scrollIntervalRef.current = setInterval(handleAutoScroll, 16); // ~60fps
+      scrollIntervalRef.current = setInterval(handleAutoScroll, 16);
     } else {
       if (scrollIntervalRef.current) {
         clearInterval(scrollIntervalRef.current);
@@ -139,17 +181,15 @@ export default function DemoAvatarsPage() {
 
   // Track mouse position during drag
   const handleDrag = useCallback((e: React.DragEvent<HTMLDivElement>) => {
-    if (e.clientY !== 0) { // clientY is 0 at the end of drag
+    if (e.clientY !== 0) {
       mouseYRef.current = e.clientY;
     }
   }, []);
 
   const filteredAvatars = avatars.filter((avatar) => {
-    // Apply search filter
     const matchesSearch = searchQuery === "" || 
       avatar.name.toLowerCase().includes(searchQuery.toLowerCase());
     
-    // Apply status filter
     const matchesFilter = 
       filter === "all" ||
       (filter === "published" && avatar.published) ||
@@ -158,20 +198,17 @@ export default function DemoAvatarsPage() {
     return matchesSearch && matchesFilter;
   });
 
-  // Check if drag and drop should be disabled (when filtering/searching)
   const isDragDisabled = filter !== "all" || searchQuery !== "";
 
-  const handleDragStart = (e: React.DragEvent<HTMLDivElement>, avatar: CachedAvatar) => {
+  const handleDragStart = (e: React.DragEvent<HTMLDivElement>, avatar: Avatar) => {
     if (isDragDisabled) return;
     
     setDraggedAvatar(avatar);
     dragNodeRef.current = e.currentTarget;
     
-    // Set drag image and effect
     e.dataTransfer.effectAllowed = "move";
     e.dataTransfer.setData("text/plain", avatar.id);
     
-    // Add dragging class after a small delay to avoid flickering
     setTimeout(() => {
       if (dragNodeRef.current) {
         dragNodeRef.current.style.opacity = "0.5";
@@ -188,7 +225,7 @@ export default function DemoAvatarsPage() {
     dragNodeRef.current = null;
   };
 
-  const handleDragOver = (e: React.DragEvent<HTMLDivElement>, avatar: CachedAvatar) => {
+  const handleDragOver = (e: React.DragEvent<HTMLDivElement>, avatar: Avatar) => {
     e.preventDefault();
     if (isDragDisabled || !draggedAvatar || draggedAvatar.id === avatar.id) return;
     
@@ -199,7 +236,7 @@ export default function DemoAvatarsPage() {
     setDragOverId(null);
   };
 
-  const handleDrop = (e: React.DragEvent<HTMLDivElement>, targetAvatar: CachedAvatar) => {
+  const handleDrop = (e: React.DragEvent<HTMLDivElement>, targetAvatar: Avatar) => {
     e.preventDefault();
     if (isDragDisabled || !draggedAvatar || draggedAvatar.id === targetAvatar.id) return;
 
@@ -207,7 +244,6 @@ export default function DemoAvatarsPage() {
     const draggedIndex = newAvatars.findIndex((a) => a.id === draggedAvatar.id);
     const targetIndex = newAvatars.findIndex((a) => a.id === targetAvatar.id);
 
-    // Remove dragged item and insert at new position
     const [removed] = newAvatars.splice(draggedIndex, 1);
     newAvatars.splice(targetIndex, 0, removed);
 
@@ -216,18 +252,89 @@ export default function DemoAvatarsPage() {
     setDragOverId(null);
   };
 
-  const handleAvatarClick = (avatar: CachedAvatar) => {
+  const handleAvatarClick = (avatar: Avatar) => {
     setSelectedAvatar(avatar);
   };
 
-  const handleEditClick = (e: React.MouseEvent, avatarId: string) => {
-    e.stopPropagation(); // Prevent card click
+  const handleEditClick = (avatarId: string) => {
     router.push(`/demo-avatars/edit/${avatarId}`);
   };
 
   const handleBack = () => {
     setSelectedAvatar(null);
   };
+
+  // Create new avatar
+  const handleCreateAvatar = async () => {
+    if (!newAvatarName.trim() || !newAvatarSystemPrompt.trim()) {
+      setCreateError("Name and System Prompt are required");
+      return;
+    }
+
+    setCreating(true);
+    setCreateError(null);
+
+    try {
+      const response = await fetch("/api/demo-avatars", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: newAvatarName.trim(),
+          systemPrompt: newAvatarSystemPrompt.trim(),
+          description: newAvatarDescription.trim() || undefined,
+          createdBy: "Current User",
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        setCreateError(data.error || "Failed to create avatar");
+        return;
+      }
+
+      // Reset form and close modal
+      setNewAvatarName("");
+      setNewAvatarSystemPrompt("");
+      setNewAvatarDescription("");
+      setIsCreateModalOpen(false);
+
+      // Refresh avatars list
+      await fetchAvatars();
+    } catch (err) {
+      setCreateError("Failed to create avatar");
+      console.error(err);
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  // Loading state
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-900 dark:to-gray-800 p-8 flex items-center justify-center">
+        <div className="text-center">
+          <Loader2 className="w-8 h-8 animate-spin text-primary mx-auto mb-4" />
+          <p className="text-default-600">Loading avatars...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Error state
+  if (error) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-900 dark:to-gray-800 p-8">
+        <div className="max-w-4xl mx-auto text-center">
+          <h1 className="text-2xl font-bold mb-4 text-danger">Error</h1>
+          <p className="text-default-600 mb-6">{error}</p>
+          <Button color="primary" onPress={() => window.location.reload()}>
+            Try Again
+          </Button>
+        </div>
+      </div>
+    );
+  }
 
   // Selected avatar detail view
   if (selectedAvatar) {
@@ -246,7 +353,6 @@ export default function DemoAvatarsPage() {
             <CardHeader className="flex gap-6 p-6">
               <AvatarImage
                 name={selectedAvatar.name}
-                portrait={selectedAvatar.portrait}
                 size={120}
               />
               <div className="flex flex-col justify-center">
@@ -341,8 +447,20 @@ export default function DemoAvatarsPage() {
         <div className="text-center mb-8">
           <h1 className="text-4xl font-bold mb-2">Your Avatars</h1>
           <p className="text-default-600 text-lg">
-            Browse and select from our collection of AI avatars (Mock Data - No S3 Required)
+            Browse and select from our collection of AI avatars
           </p>
+        </div>
+
+        {/* Create New Avatar Button */}
+        <div className="flex justify-center mb-6">
+          <Button
+            color="primary"
+            size="lg"
+            startContent={<Plus className="w-5 h-5" />}
+            onPress={() => setIsCreateModalOpen(true)}
+          >
+            Create New Avatar
+          </Button>
         </div>
 
         {/* Search Bar */}
@@ -439,18 +557,25 @@ export default function DemoAvatarsPage() {
                   </div>
                 )}
                 {/* Edit Button */}
-                <Button
-                  isIconOnly
-                  size="sm"
-                  variant="flat"
-                  color="primary"
-                  className="absolute top-2 right-2 z-10"
-                  onPress={(e) => handleEditClick(e as unknown as React.MouseEvent, avatar.id)}
+                <a
+                  href={`/demo-avatars/edit/${avatar.id}`}
+                  className="absolute top-2 right-2 z-20"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                  }}
                 >
-                  <Pencil className="w-4 h-4" />
-                </Button>
+                  <Button
+                    isIconOnly
+                    size="sm"
+                    variant="flat"
+                    color="primary"
+                    as="span"
+                  >
+                    <Pencil className="w-4 h-4" />
+                  </Button>
+                </a>
                 <CardHeader className={`flex gap-3 pb-0 pr-12 ${!isDragDisabled ? "pl-10" : ""}`}>
-                <AvatarImage name={avatar.name} portrait={avatar.portrait} size={48} />
+                <AvatarImage name={avatar.name} size={48} />
                 <div className="flex flex-col flex-1">
                   <div className="flex items-center gap-2 flex-wrap">
                     <p className="text-md font-semibold">{avatar.name}</p>
@@ -528,6 +653,85 @@ export default function DemoAvatarsPage() {
           </div>
         )}
       </div>
+
+      {/* Create Avatar Modal */}
+      <Modal 
+        isOpen={isCreateModalOpen} 
+        onOpenChange={setIsCreateModalOpen}
+        size="2xl"
+      >
+        <ModalContent>
+          {(onClose) => (
+            <>
+              <ModalHeader className="flex flex-col gap-1">
+                Create New Avatar
+              </ModalHeader>
+              <ModalBody>
+                {createError && (
+                  <div className="bg-danger-50 dark:bg-danger-900/20 border border-danger-200 dark:border-danger-800 rounded-lg p-3 mb-4">
+                    <p className="text-danger-700 dark:text-danger-400 text-sm">{createError}</p>
+                  </div>
+                )}
+                
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium mb-2">
+                      Avatar Name <span className="text-danger">*</span>
+                    </label>
+                    <Input
+                      value={newAvatarName}
+                      onValueChange={setNewAvatarName}
+                      placeholder="Enter avatar name"
+                      variant="bordered"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium mb-2">
+                      System Prompt <span className="text-danger">*</span>
+                    </label>
+                    <textarea
+                      className="w-full min-h-[120px] p-3 rounded-lg border-2 border-default-200 bg-default-100 text-default-700 resize-y focus:border-primary focus:outline-none"
+                      value={newAvatarSystemPrompt}
+                      onChange={(e) => setNewAvatarSystemPrompt(e.target.value)}
+                      placeholder="Enter the system prompt that defines this avatar's behavior..."
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium mb-2">
+                      Description (optional)
+                    </label>
+                    <textarea
+                      className="w-full min-h-[80px] p-3 rounded-lg border-2 border-default-200 bg-default-100 text-default-700 resize-y focus:border-primary focus:outline-none"
+                      value={newAvatarDescription}
+                      onChange={(e) => setNewAvatarDescription(e.target.value)}
+                      placeholder="Enter a brief description of this avatar..."
+                    />
+                  </div>
+                </div>
+              </ModalBody>
+              <ModalFooter>
+                <Button 
+                  variant="light" 
+                  onPress={onClose}
+                  isDisabled={creating}
+                >
+                  Cancel
+                </Button>
+                <Button 
+                  color="primary" 
+                  onPress={handleCreateAvatar}
+                  isDisabled={creating || !newAvatarName.trim() || !newAvatarSystemPrompt.trim()}
+                  startContent={creating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+                >
+                  {creating ? "Creating..." : "Create Avatar"}
+                </Button>
+              </ModalFooter>
+            </>
+          )}
+        </ModalContent>
+      </Modal>
     </div>
   );
 }
