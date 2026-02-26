@@ -631,3 +631,529 @@ export async function getLearningCurveDetails(
     predictedNextScore: 90,
   };
 }
+
+// ============================================================================
+// TEACHER CLASS OVERVIEW TYPES & FUNCTIONS
+// ============================================================================
+
+export type AttemptViewMode =
+  | "best"
+  | "first"
+  | "latest"
+  | { type: "specific"; attemptNumber: number };
+
+export interface StudentGradebookRow {
+  studentId: string;
+  studentName: string;
+  studentNumber: string;
+  attempts: StudentAttempt[];
+  bestScore: number | null;
+  firstAttemptScore: number | null;
+  latestAttemptScore: number | null;
+  maxAttemptNumber: number;
+}
+
+export interface ClassGradebookData {
+  section: CourseSection;
+  case: Case;
+  students: StudentGradebookRow[];
+  maxAttemptsInClass: number;
+  classStats: {
+    average: number | null;
+    highest: number | null;
+    lowest: number | null;
+    missingCount: number;
+    totalStudents: number;
+  };
+}
+
+export interface ClassTrendData {
+  attemptNumber: number;
+  averageScore: number;
+  studentCount: number;
+}
+
+export interface ClassProcessAnalytics {
+  avgTimeMinutes: number;
+  minTimeMinutes: number;
+  maxTimeMinutes: number;
+  avgMessageCount: number;
+  minMessageCount: number;
+  maxMessageCount: number;
+  topQuestionThemes: Array<{
+    theme: string;
+    count: number;
+    percentage: number;
+  }>;
+}
+
+export interface StudentOverviewData {
+  student: Student;
+  section: CourseSection;
+  casesWithScores: Array<{
+    case: Case;
+    bestScore: number | null;
+    latestScore: number | null;
+    attemptCount: number;
+    lastAttemptDate: string | null;
+  }>;
+}
+
+// Mock data for student attempts per case (for gradebook)
+const MOCK_STUDENT_CASE_ATTEMPTS: Record<
+  string,
+  Record<string, StudentAttempt[]>
+> = {
+  "stu-001": {
+    "case-001": [
+      {
+        attemptNumber: 1,
+        startedAt: "2025-01-15T10:30:00Z",
+        completedAt: "2025-01-15T11:15:00Z",
+        score: 72,
+        totalMessages: 24,
+        totalTimeSeconds: 2700,
+      },
+      {
+        attemptNumber: 2,
+        startedAt: "2025-01-22T14:00:00Z",
+        completedAt: "2025-01-22T14:45:00Z",
+        score: 85,
+        totalMessages: 31,
+        totalTimeSeconds: 2700,
+      },
+    ],
+    "case-002": [
+      {
+        attemptNumber: 1,
+        startedAt: "2025-01-18T09:00:00Z",
+        completedAt: "2025-01-18T09:50:00Z",
+        score: 78,
+        totalMessages: 22,
+        totalTimeSeconds: 3000,
+      },
+    ],
+    "case-005": [
+      {
+        attemptNumber: 1,
+        startedAt: "2025-02-01T10:00:00Z",
+        completedAt: "2025-02-01T10:45:00Z",
+        score: 88,
+        totalMessages: 26,
+        totalTimeSeconds: 2700,
+      },
+    ],
+  },
+  "stu-002": {
+    "case-001": [
+      {
+        attemptNumber: 1,
+        startedAt: "2025-01-16T11:00:00Z",
+        completedAt: "2025-01-16T11:40:00Z",
+        score: 65,
+        totalMessages: 20,
+        totalTimeSeconds: 2400,
+      },
+      {
+        attemptNumber: 2,
+        startedAt: "2025-01-23T15:00:00Z",
+        completedAt: "2025-01-23T15:50:00Z",
+        score: 71,
+        totalMessages: 28,
+        totalTimeSeconds: 3000,
+      },
+      {
+        attemptNumber: 3,
+        startedAt: "2025-02-02T09:00:00Z",
+        completedAt: "2025-02-02T09:55:00Z",
+        score: 79,
+        totalMessages: 32,
+        totalTimeSeconds: 3300,
+      },
+    ],
+    "case-002": [
+      {
+        attemptNumber: 1,
+        startedAt: "2025-01-20T14:00:00Z",
+        completedAt: "2025-01-20T14:35:00Z",
+        score: 82,
+        totalMessages: 25,
+        totalTimeSeconds: 2100,
+      },
+    ],
+  },
+  "stu-005": {
+    "case-001": [
+      {
+        attemptNumber: 1,
+        startedAt: "2025-01-17T10:00:00Z",
+        completedAt: "2025-01-17T10:50:00Z",
+        score: 91,
+        totalMessages: 30,
+        totalTimeSeconds: 3000,
+      },
+    ],
+    "case-005": [
+      {
+        attemptNumber: 1,
+        startedAt: "2025-02-03T11:00:00Z",
+        completedAt: "2025-02-03T11:40:00Z",
+        score: 95,
+        totalMessages: 28,
+        totalTimeSeconds: 2400,
+      },
+    ],
+  },
+  "stu-007": {
+    "case-001": [
+      {
+        attemptNumber: 1,
+        startedAt: "2025-01-18T13:00:00Z",
+        completedAt: "2025-01-18T13:45:00Z",
+        score: 58,
+        totalMessages: 18,
+        totalTimeSeconds: 2700,
+      },
+      {
+        attemptNumber: 2,
+        startedAt: "2025-01-25T10:00:00Z",
+        completedAt: "2025-01-25T10:55:00Z",
+        score: 67,
+        totalMessages: 24,
+        totalTimeSeconds: 3300,
+      },
+    ],
+    "case-002": [],
+  },
+  "stu-003": {
+    "case-001": [
+      {
+        attemptNumber: 1,
+        startedAt: "2025-01-19T09:30:00Z",
+        completedAt: "2025-01-19T10:20:00Z",
+        score: 76,
+        totalMessages: 27,
+        totalTimeSeconds: 3000,
+      },
+    ],
+    "case-005": [
+      {
+        attemptNumber: 1,
+        startedAt: "2025-02-04T14:00:00Z",
+        completedAt: "2025-02-04T14:50:00Z",
+        score: 83,
+        totalMessages: 29,
+        totalTimeSeconds: 3000,
+      },
+    ],
+  },
+  "stu-004": {
+    "case-001": [
+      {
+        attemptNumber: 1,
+        startedAt: "2025-01-20T11:00:00Z",
+        completedAt: "2025-01-20T11:45:00Z",
+        score: 69,
+        totalMessages: 22,
+        totalTimeSeconds: 2700,
+      },
+    ],
+    "case-005": [],
+  },
+  "stu-008": {
+    "case-001": [
+      {
+        attemptNumber: 1,
+        startedAt: "2025-01-21T10:00:00Z",
+        completedAt: "2025-01-21T10:40:00Z",
+        score: 74,
+        totalMessages: 25,
+        totalTimeSeconds: 2400,
+      },
+      {
+        attemptNumber: 2,
+        startedAt: "2025-01-28T14:00:00Z",
+        completedAt: "2025-01-28T14:55:00Z",
+        score: 81,
+        totalMessages: 30,
+        totalTimeSeconds: 3300,
+      },
+    ],
+  },
+};
+
+/**
+ * Get gradebook data for a class and case
+ * TODO: Replace with PostgreSQL query aggregating student attempts
+ */
+export async function getClassGradebook(
+  sectionId: string,
+  caseId: string
+): Promise<ClassGradebookData | null> {
+  await new Promise((resolve) => setTimeout(resolve, 150));
+
+  const section = MOCK_SECTIONS.find((s) => s.id === sectionId);
+  const caseData = MOCK_CASES.find((c) => c.id === caseId);
+
+  if (!section || !caseData) {
+    return null;
+  }
+
+  const studentsInSection = MOCK_STUDENTS.filter((s) =>
+    s.sectionIds.includes(sectionId)
+  );
+
+  const studentRows: StudentGradebookRow[] = studentsInSection.map(
+    (student) => {
+      const attempts =
+        MOCK_STUDENT_CASE_ATTEMPTS[student.id]?.[caseId] || [];
+      const scores = attempts
+        .map((a) => a.score)
+        .filter((s): s is number => s !== null);
+
+      return {
+        studentId: student.id,
+        studentName: student.name,
+        studentNumber: student.studentNumber,
+        attempts,
+        bestScore: scores.length > 0 ? Math.max(...scores) : null,
+        firstAttemptScore: attempts[0]?.score ?? null,
+        latestAttemptScore:
+          attempts.length > 0 ? attempts[attempts.length - 1].score : null,
+        maxAttemptNumber:
+          attempts.length > 0
+            ? Math.max(...attempts.map((a) => a.attemptNumber))
+            : 0,
+      };
+    }
+  );
+
+  const maxAttemptsInClass = Math.max(
+    ...studentRows.map((s) => s.maxAttemptNumber),
+    0
+  );
+
+  const allBestScores = studentRows
+    .map((s) => s.bestScore)
+    .filter((s): s is number => s !== null);
+
+  const missingCount = studentRows.filter((s) => s.bestScore === null).length;
+
+  return {
+    section,
+    case: caseData,
+    students: studentRows,
+    maxAttemptsInClass,
+    classStats: {
+      average:
+        allBestScores.length > 0
+          ? Math.round(
+              allBestScores.reduce((a, b) => a + b, 0) / allBestScores.length
+            )
+          : null,
+      highest: allBestScores.length > 0 ? Math.max(...allBestScores) : null,
+      lowest: allBestScores.length > 0 ? Math.min(...allBestScores) : null,
+      missingCount,
+      totalStudents: studentRows.length,
+    },
+  };
+}
+
+/**
+ * Get score for a student based on attempt view mode
+ */
+export function getScoreByAttemptMode(
+  row: StudentGradebookRow,
+  mode: AttemptViewMode
+): number | null {
+  if (mode === "best") {
+    return row.bestScore;
+  }
+  if (mode === "first") {
+    return row.firstAttemptScore;
+  }
+  if (mode === "latest") {
+    return row.latestAttemptScore;
+  }
+  if (typeof mode === "object" && mode.type === "specific") {
+    const attempt = row.attempts.find(
+      (a) => a.attemptNumber === mode.attemptNumber
+    );
+    return attempt?.score ?? null;
+  }
+  return null;
+}
+
+/**
+ * Calculate class stats based on attempt view mode
+ */
+export function calculateClassStats(
+  students: StudentGradebookRow[],
+  mode: AttemptViewMode
+): {
+  average: number | null;
+  highest: number | null;
+  lowest: number | null;
+  missingCount: number;
+  totalStudents: number;
+} {
+  const scores = students
+    .map((s) => getScoreByAttemptMode(s, mode))
+    .filter((s): s is number => s !== null);
+
+  const missingCount = students.filter(
+    (s) => getScoreByAttemptMode(s, mode) === null
+  ).length;
+
+  return {
+    average:
+      scores.length > 0
+        ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length)
+        : null,
+    highest: scores.length > 0 ? Math.max(...scores) : null,
+    lowest: scores.length > 0 ? Math.min(...scores) : null,
+    missingCount,
+    totalStudents: students.length,
+  };
+}
+
+/**
+ * Get class trend data (average score per attempt number)
+ * TODO: Replace with PostgreSQL aggregation query
+ */
+export async function getClassTrendData(
+  sectionId: string,
+  caseId: string
+): Promise<ClassTrendData[]> {
+  await new Promise((resolve) => setTimeout(resolve, 100));
+
+  const gradebook = await getClassGradebook(sectionId, caseId);
+  if (!gradebook) return [];
+
+  const attemptScores: Record<number, number[]> = {};
+
+  for (const student of gradebook.students) {
+    for (const attempt of student.attempts) {
+      if (attempt.score !== null) {
+        if (!attemptScores[attempt.attemptNumber]) {
+          attemptScores[attempt.attemptNumber] = [];
+        }
+        attemptScores[attempt.attemptNumber].push(attempt.score);
+      }
+    }
+  }
+
+  return Object.entries(attemptScores)
+    .map(([attemptNum, scores]) => ({
+      attemptNumber: parseInt(attemptNum),
+      averageScore: Math.round(
+        scores.reduce((a, b) => a + b, 0) / scores.length
+      ),
+      studentCount: scores.length,
+    }))
+    .sort((a, b) => a.attemptNumber - b.attemptNumber);
+}
+
+/**
+ * Get process/learning analytics for a class and case
+ * TODO: Replace with PostgreSQL aggregation and NLP pipeline for question themes
+ */
+export async function getClassProcessAnalytics(
+  sectionId: string,
+  caseId: string
+): Promise<ClassProcessAnalytics> {
+  await new Promise((resolve) => setTimeout(resolve, 100));
+
+  // Mock data - in production this would aggregate from chat sessions
+  return {
+    avgTimeMinutes: 42,
+    minTimeMinutes: 25,
+    maxTimeMinutes: 65,
+    avgMessageCount: 26,
+    minMessageCount: 15,
+    maxMessageCount: 38,
+    topQuestionThemes: [
+      { theme: "Market Analysis", count: 45, percentage: 28 },
+      { theme: "Competitive Strategy", count: 38, percentage: 24 },
+      { theme: "Financial Projections", count: 32, percentage: 20 },
+      { theme: "Risk Assessment", count: 25, percentage: 16 },
+      { theme: "Implementation Timeline", count: 19, percentage: 12 },
+    ],
+  };
+}
+
+/**
+ * Get student overview across all cases in a section
+ * TODO: Replace with PostgreSQL query
+ */
+export async function getStudentOverview(
+  sectionId: string,
+  studentId: string
+): Promise<StudentOverviewData | null> {
+  await new Promise((resolve) => setTimeout(resolve, 100));
+
+  const section = MOCK_SECTIONS.find((s) => s.id === sectionId);
+  const student = MOCK_STUDENTS.find((s) => s.id === studentId);
+
+  if (!section || !student) {
+    return null;
+  }
+
+  const casesInSection = MOCK_CASES.filter((c) =>
+    c.sectionIds.includes(sectionId)
+  );
+
+  const casesWithScores = casesInSection.map((caseData) => {
+    const attempts =
+      MOCK_STUDENT_CASE_ATTEMPTS[studentId]?.[caseData.id] || [];
+    const scores = attempts
+      .map((a) => a.score)
+      .filter((s): s is number => s !== null);
+
+    return {
+      case: caseData,
+      bestScore: scores.length > 0 ? Math.max(...scores) : null,
+      latestScore:
+        attempts.length > 0 ? attempts[attempts.length - 1].score : null,
+      attemptCount: attempts.length,
+      lastAttemptDate:
+        attempts.length > 0
+          ? attempts[attempts.length - 1].completedAt ||
+            attempts[attempts.length - 1].startedAt
+          : null,
+    };
+  });
+
+  return {
+    student,
+    section,
+    casesWithScores,
+  };
+}
+
+/**
+ * Export gradebook data as CSV string
+ */
+export function exportGradebookToCSV(
+  gradebook: ClassGradebookData,
+  mode: AttemptViewMode
+): string {
+  const headers = ["Student Name", "Student ID", "Score"];
+  const rows = gradebook.students.map((student) => {
+    const score = getScoreByAttemptMode(student, mode);
+    return [
+      student.studentName,
+      student.studentNumber,
+      score !== null ? score.toString() : "N/A",
+    ];
+  });
+
+  const csvContent = [
+    headers.join(","),
+    ...rows.map((row) =>
+      row.map((cell) => `"${cell.replace(/"/g, '""')}"`).join(",")
+    ),
+  ].join("\n");
+
+  return csvContent;
+}

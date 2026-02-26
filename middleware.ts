@@ -153,6 +153,8 @@ const ADMIN_ROUTES = [
   "/api/case/list",
   // Student History routes
   "/student-history",
+  // Teacher Class Overview routes
+  "/teacher",
 ];
 
 /**
