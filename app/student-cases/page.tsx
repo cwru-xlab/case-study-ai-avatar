@@ -1,9 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { Card, CardBody, CardHeader } from "@heroui/card";
 import { Input } from "@heroui/input";
 import { Button } from "@heroui/button";
+import { Select, SelectItem } from "@heroui/select";
 import { Briefcase, Plus, Calendar, User } from "lucide-react";
 
 import { title } from "@/components/primitives";
@@ -63,6 +64,29 @@ export default function StudentCasesPage() {
   const [cases, setCases] = useState<StudentCase[]>(mockCases);
   const [caseCode, setCaseCode] = useState("");
   const [isAdding, setIsAdding] = useState(false);
+  const [courseFilter, setCourseFilter] = useState<string>("all");
+  const [sortOrder, setSortOrder] = useState<"newest" | "oldest">("newest");
+
+  const uniqueCourses = useMemo(() => {
+    const codes = [...new Set(cases.map((c) => c.code))];
+    return codes.sort();
+  }, [cases]);
+
+  const filteredCases = useMemo(() => {
+    let result = [...cases];
+
+    if (courseFilter !== "all") {
+      result = result.filter((c) => c.code === courseFilter);
+    }
+
+    result.sort((a, b) => {
+      const dateA = new Date(a.dueDate).getTime();
+      const dateB = new Date(b.dueDate).getTime();
+      return sortOrder === "newest" ? dateB - dateA : dateA - dateB;
+    });
+
+    return result;
+  }, [cases, courseFilter, sortOrder]);
 
   const handleAddCase = () => {
     if (!caseCode.trim()) return;
@@ -116,21 +140,49 @@ export default function StudentCasesPage() {
               Add Case
             </Button>
           </div>
+          <div className="flex gap-2">
+            <Select
+              aria-label="Filter by course"
+              className="w-40"
+              size="sm"
+              selectedKeys={[courseFilter]}
+              onChange={(e) => setCourseFilter(e.target.value || "all")}
+            >
+              <SelectItem key="all">All Courses</SelectItem>
+              {uniqueCourses.map((code) => (
+                <SelectItem key={code}>{code}</SelectItem>
+              ))}
+            </Select>
+            <Select
+              aria-label="Sort order"
+              className="w-36"
+              size="sm"
+              selectedKeys={[sortOrder]}
+              onChange={(e) =>
+                setSortOrder((e.target.value as "newest" | "oldest") || "newest")
+              }
+            >
+              <SelectItem key="newest">Newest First</SelectItem>
+              <SelectItem key="oldest">Oldest First</SelectItem>
+            </Select>
+          </div>
         </CardBody>
       </Card>
 
-      {cases.length === 0 ? (
+      {filteredCases.length === 0 ? (
         <Card className="bg-default-50">
           <CardBody className="py-12 text-center">
             <Briefcase className="mx-auto mb-4 text-default-300" size={48} />
             <p className="text-default-500">
-              No cases assigned yet. Add a case using the code above.
+              {cases.length === 0
+                ? "No cases assigned yet. Add a case using the code above."
+                : "No cases match your filters."}
             </p>
           </CardBody>
         </Card>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-          {cases.map((caseItem) => (
+          {filteredCases.map((caseItem) => (
             <Card
               key={caseItem.id}
               isPressable
