@@ -188,6 +188,12 @@ export interface ChatSession {
  * ==================================================================================
  */
 
+/**
+ * CaseAvatar Interface
+ * 
+ * Represents an avatar persona within a case study.
+ * This is metadata about the avatar's role in the case, not the actual Avatar entity.
+ */
 export interface CaseAvatar {
   id: string;
   name: string;
@@ -195,12 +201,51 @@ export interface CaseAvatar {
   additionalInfo: string;
 }
 
+/**
+ * Learning Objective Interface
+ * 
+ * Represents a single learning objective for a case study.
+ * Professors define these to track what students should learn.
+ */
+export interface LearningObjective {
+  id: string;                           // Unique identifier
+  text: string;                         // The objective description
+  type: "knowledge" | "skill" | "attitude";  // Bloom's taxonomy category
+  weight: number;                       // Scoring weight (1-10)
+}
+
+/**
+ * Case Difficulty Levels
+ */
+export type CaseDifficulty = "beginner" | "intermediate" | "advanced";
+
+/**
+ * Case Status
+ */
+export type CaseStatus = "draft" | "published" | "archived";
+
+/**
+ * CaseStudy Interface
+ * 
+ * Represents a complete case study with all authoring features.
+ * Extended with learning objectives, difficulty, duration, and memory prompt.
+ */
 export interface CaseStudy {
   id: string;
   name: string;
   backgroundInfo: string;
   avatars: CaseAvatar[];
   cohortIds: string[];  // Cases are assigned to cohorts (following Alfred's sectionIds pattern)
+  
+  // New fields for enhanced case authoring
+  learningObjectives: LearningObjective[];  // Learning objectives with weights
+  difficulty: CaseDifficulty;               // Case difficulty level
+  estimatedDuration: number;                // Estimated duration in minutes
+  status: CaseStatus;                       // Draft, published, or archived
+  memoryPrompt: string;                     // Context/memory for the AI (replaces PDF upload)
+  linkedAvatarId?: string;                  // Optional link to an Avatar entity for video/audio
+  
+  // Metadata
   createdBy: string;
   lastEditedBy: string;
   createdAt: string;

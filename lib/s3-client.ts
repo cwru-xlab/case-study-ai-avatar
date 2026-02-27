@@ -924,6 +924,10 @@ export class S3AvatarStorage {
       name: caseStudy.name,
       avatarCount: caseStudy.avatars.length,
       lastEditedAt: caseStudy.lastEditedAt,
+      status: caseStudy.status || "draft",
+      difficulty: caseStudy.difficulty || "beginner",
+      estimatedDuration: caseStudy.estimatedDuration || 0,
+      objectiveCount: caseStudy.learningObjectives?.length || 0,
     });
     index.sort(
       (a, b) =>
@@ -983,6 +987,34 @@ export class S3AvatarStorage {
     let index = await this.readCaseIndex();
     index = index.filter((c) => c.id !== id);
     await this.writeCaseIndex(index);
+
+    // Cascade delete: Remove case reference from all cohorts
+    await this.removeCaseFromAllCohorts(id);
+  }
+
+  /**
+   * Remove a case ID from all cohorts that reference it.
+   * This is called during cascade delete when a case is deleted.
+   */
+  async removeCaseFromAllCohorts(caseId: string): Promise<void> {
+    try {
+      const cohorts = await this.listCohorts();
+      
+      for (const cohort of cohorts) {
+        if (cohort.assignedCaseIds?.includes(caseId)) {
+          const updatedCohort = {
+            ...cohort,
+            assignedCaseIds: cohort.assignedCaseIds.filter((id) => id !== caseId),
+            updatedAt: new Date().toISOString(),
+          };
+          await this.saveCohort(updatedCohort);
+          console.log(`Removed case ${caseId} from cohort ${cohort.id}`);
+        }
+      }
+    } catch (error) {
+      console.error(`Failed to remove case ${caseId} from cohorts:`, error);
+      // Don't throw - cascade delete is best-effort
+    }
   }
 
   async caseExists(id: string): Promise<boolean> {
@@ -1004,6 +1036,10 @@ export class S3AvatarStorage {
       name: string;
       avatarCount: number;
       lastEditedAt: string;
+      status?: string;
+      difficulty?: string;
+      estimatedDuration?: number;
+      objectiveCount?: number;
     }>
   > {
     try {
@@ -1032,6 +1068,10 @@ export class S3AvatarStorage {
       name: string;
       avatarCount: number;
       lastEditedAt: string;
+      status?: string;
+      difficulty?: string;
+      estimatedDuration?: number;
+      objectiveCount?: number;
     }>
   ): Promise<void> {
     const command = new PutObjectCommand({

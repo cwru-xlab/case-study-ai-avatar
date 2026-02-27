@@ -5,6 +5,9 @@ import { useParams, useRouter } from "next/navigation";
 import { Card, CardBody, CardHeader } from "@heroui/card";
 import { Button } from "@heroui/button";
 import { Input, Textarea } from "@heroui/input";
+import { Select, SelectItem } from "@heroui/select";
+import { Slider } from "@heroui/slider";
+import { Chip } from "@heroui/chip";
 import {
   Modal,
   ModalContent,
@@ -13,18 +16,20 @@ import {
   ModalFooter,
   useDisclosure,
 } from "@heroui/modal";
-import { ArrowLeft, Plus, Save, Trash2, X } from "lucide-react";
+import { ArrowLeft, Plus, Save, Trash2, X, Target, Clock, BarChart3, Brain, User, Search } from "lucide-react";
 import { addToast } from "@heroui/toast";
 import { title as pageTitle } from "@/components/primitives";
 import { useAuth } from "@/lib/auth-context";
 import { caseStorage } from "@/lib/case-storage";
-import type { CaseStudy, CaseAvatar } from "@/types";
+import { avatarStorage, type CachedAvatar } from "@/lib/avatar-storage";
+import type { CaseStudy, CaseAvatar, LearningObjective, CaseDifficulty, CaseStatus } from "@/types";
 
 export default function CaseDetailPage() {
   const params = useParams();
   const router = useRouter();
   const { user } = useAuth();
   const { isOpen, onOpen, onOpenChange } = useDisclosure();
+  const { isOpen: isAvatarModalOpen, onOpen: onAvatarModalOpen, onOpenChange: onAvatarModalOpenChange } = useDisclosure();
 
   const caseId = params.caseId as string;
   const isNewCase = caseId === "new";
@@ -32,6 +37,18 @@ export default function CaseDetailPage() {
   const [name, setName] = useState("");
   const [backgroundInfo, setBackgroundInfo] = useState("");
   const [avatars, setAvatars] = useState<CaseAvatar[]>([]);
+  
+  // Available avatars from the system
+  const [availableAvatars, setAvailableAvatars] = useState<CachedAvatar[]>([]);
+  const [avatarSearchQuery, setAvatarSearchQuery] = useState("");
+  const [loadingAvatars, setLoadingAvatars] = useState(false);
+  
+  // New state for enhanced case authoring
+  const [learningObjectives, setLearningObjectives] = useState<LearningObjective[]>([]);
+  const [difficulty, setDifficulty] = useState<CaseDifficulty>("beginner");
+  const [estimatedDuration, setEstimatedDuration] = useState<number>(30);
+  const [status, setStatus] = useState<CaseStatus>("draft");
+  const [memoryPrompt, setMemoryPrompt] = useState("");
 
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -43,6 +60,11 @@ export default function CaseDetailPage() {
     name: "",
     backgroundInfo: "",
     avatars: "[]",
+    learningObjectives: "[]",
+    difficulty: "beginner",
+    estimatedDuration: 30,
+    status: "draft",
+    memoryPrompt: "",
   });
 
   const generatedId = useMemo(() => {
@@ -60,9 +82,14 @@ export default function CaseDetailPage() {
     return (
       name !== originalValues.name ||
       backgroundInfo !== originalValues.backgroundInfo ||
-      JSON.stringify(avatars) !== originalValues.avatars
+      JSON.stringify(avatars) !== originalValues.avatars ||
+      JSON.stringify(learningObjectives) !== originalValues.learningObjectives ||
+      difficulty !== originalValues.difficulty ||
+      estimatedDuration !== originalValues.estimatedDuration ||
+      status !== originalValues.status ||
+      memoryPrompt !== originalValues.memoryPrompt
     );
-  }, [name, backgroundInfo, avatars, originalValues]);
+  }, [name, backgroundInfo, avatars, learningObjectives, difficulty, estimatedDuration, status, memoryPrompt, originalValues]);
 
   useEffect(() => {
     const loadCase = async () => {
@@ -73,11 +100,21 @@ export default function CaseDetailPage() {
           if (caseData) {
             setName(caseData.name);
             setBackgroundInfo(caseData.backgroundInfo);
-            setAvatars(caseData.avatars);
+            setAvatars(caseData.avatars || []);
+            setLearningObjectives(caseData.learningObjectives || []);
+            setDifficulty(caseData.difficulty || "beginner");
+            setEstimatedDuration(caseData.estimatedDuration || 30);
+            setStatus(caseData.status || "draft");
+            setMemoryPrompt(caseData.memoryPrompt || "");
             setOriginalValues({
               name: caseData.name,
               backgroundInfo: caseData.backgroundInfo,
-              avatars: JSON.stringify(caseData.avatars),
+              avatars: JSON.stringify(caseData.avatars || []),
+              learningObjectives: JSON.stringify(caseData.learningObjectives || []),
+              difficulty: caseData.difficulty || "beginner",
+              estimatedDuration: caseData.estimatedDuration || 30,
+              status: caseData.status || "draft",
+              memoryPrompt: caseData.memoryPrompt || "",
             });
           } else {
             setErrors({ load: "Case not found" });
@@ -93,6 +130,34 @@ export default function CaseDetailPage() {
 
     loadCase();
   }, [caseId, isNewCase]);
+
+  // Load available avatars from the system
+  useEffect(() => {
+    const loadAvailableAvatars = async () => {
+      setLoadingAvatars(true);
+      try {
+        const allAvatars = await avatarStorage.list();
+        setAvailableAvatars(allAvatars);
+      } catch (error) {
+        console.error("Failed to load avatars:", error);
+      } finally {
+        setLoadingAvatars(false);
+      }
+    };
+    loadAvailableAvatars();
+  }, []);
+
+  // Filter avatars based on search and exclude already added ones
+  const filteredAvailableAvatars = useMemo(() => {
+    const addedAvatarIds = avatars.map(a => a.id);
+    return availableAvatars.filter(avatar => {
+      const matchesSearch = avatarSearchQuery === "" || 
+        avatar.name.toLowerCase().includes(avatarSearchQuery.toLowerCase()) ||
+        (avatar.title?.toLowerCase().includes(avatarSearchQuery.toLowerCase()));
+      const notAlreadyAdded = !addedAvatarIds.includes(avatar.id);
+      return matchesSearch && notAlreadyAdded;
+    });
+  }, [availableAvatars, avatars, avatarSearchQuery]);
 
   const validateForm = () => {
     const newErrors: Record<string, string> = {};
@@ -123,6 +188,12 @@ export default function CaseDetailPage() {
           name,
           backgroundInfo,
           avatars,
+          learningObjectives,
+          difficulty,
+          estimatedDuration,
+          status,
+          memoryPrompt,
+          cohortIds: [],
           createdBy: userName,
           lastEditedBy: userName,
         });
@@ -137,6 +208,11 @@ export default function CaseDetailPage() {
           name,
           backgroundInfo,
           avatars,
+          learningObjectives,
+          difficulty,
+          estimatedDuration,
+          status,
+          memoryPrompt,
           lastEditedBy: userName,
         });
 
@@ -187,14 +263,16 @@ export default function CaseDetailPage() {
     router.push("/case-management");
   };
 
-  const handleAddAvatar = () => {
-    const newAvatar: CaseAvatar = {
-      id: `avatar-${Date.now()}`,
-      name: "",
-      role: "",
+  const handleAddAvatarFromSystem = (systemAvatar: CachedAvatar) => {
+    const newCaseAvatar: CaseAvatar = {
+      id: systemAvatar.id,
+      name: systemAvatar.name,
+      role: systemAvatar.title || "",
       additionalInfo: "",
     };
-    setAvatars([...avatars, newAvatar]);
+    setAvatars([...avatars, newCaseAvatar]);
+    onAvatarModalOpenChange();
+    setAvatarSearchQuery("");
   };
 
   const handleRemoveAvatar = (avatarId: string) => {
@@ -204,6 +282,27 @@ export default function CaseDetailPage() {
   const updateAvatar = (avatarId: string, updates: Partial<CaseAvatar>) => {
     setAvatars(
       avatars.map((a) => (a.id === avatarId ? { ...a, ...updates } : a))
+    );
+  };
+
+  // Learning Objective handlers
+  const handleAddObjective = () => {
+    const newObjective: LearningObjective = {
+      id: `obj-${Date.now()}`,
+      text: "",
+      type: "knowledge",
+      weight: 5,
+    };
+    setLearningObjectives([...learningObjectives, newObjective]);
+  };
+
+  const handleRemoveObjective = (objectiveId: string) => {
+    setLearningObjectives(learningObjectives.filter((o) => o.id !== objectiveId));
+  };
+
+  const updateObjective = (objectiveId: string, updates: Partial<LearningObjective>) => {
+    setLearningObjectives(
+      learningObjectives.map((o) => (o.id === objectiveId ? { ...o, ...updates } : o))
     );
   };
 
@@ -299,12 +398,170 @@ export default function CaseDetailPage() {
             />
           </div>
 
+          {/* Case Settings */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <Select
+              label="Status"
+              placeholder="Select status"
+              selectedKeys={[status]}
+              startContent={<BarChart3 className="w-4 h-4 text-default-400" />}
+              onSelectionChange={(keys) => setStatus(Array.from(keys)[0] as CaseStatus)}
+            >
+              <SelectItem key="draft">Draft</SelectItem>
+              <SelectItem key="published">Published</SelectItem>
+              <SelectItem key="archived">Archived</SelectItem>
+            </Select>
+
+            <Select
+              label="Difficulty"
+              placeholder="Select difficulty"
+              selectedKeys={[difficulty]}
+              onSelectionChange={(keys) => setDifficulty(Array.from(keys)[0] as CaseDifficulty)}
+            >
+              <SelectItem key="beginner">Beginner</SelectItem>
+              <SelectItem key="intermediate">Intermediate</SelectItem>
+              <SelectItem key="advanced">Advanced</SelectItem>
+            </Select>
+
+            <Input
+              label="Estimated Duration (minutes)"
+              placeholder="30"
+              startContent={<Clock className="w-4 h-4 text-default-400" />}
+              type="number"
+              value={estimatedDuration.toString()}
+              onValueChange={(val) => setEstimatedDuration(parseInt(val) || 0)}
+            />
+          </div>
+
+          {/* Learning Objectives */}
+          <Card className="border border-default-200">
+            <CardHeader className="flex justify-between items-center">
+              <div className="flex items-center gap-2">
+                <Target className="w-5 h-5 text-primary" />
+                <div>
+                  <h3 className="text-lg font-semibold">Learning Objectives</h3>
+                  <p className="text-sm text-default-500">
+                    Define what students should learn from this case
+                  </p>
+                </div>
+              </div>
+              <Button
+                color="primary"
+                size="sm"
+                startContent={<Plus className="w-4 h-4" />}
+                variant="bordered"
+                onPress={handleAddObjective}
+              >
+                Add Objective
+              </Button>
+            </CardHeader>
+            <CardBody className="space-y-3">
+              {learningObjectives.length === 0 && (
+                <div className="text-center py-6 text-default-400">
+                  <Target className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                  <p>No learning objectives defined</p>
+                  <p className="text-sm">Add objectives to track student progress</p>
+                </div>
+              )}
+
+              {learningObjectives.map((objective, index) => (
+                <Card key={objective.id} className="p-4 bg-default-50">
+                  <div className="space-y-3">
+                    <div className="flex items-start gap-3">
+                      <Chip size="sm" variant="flat" color="primary">
+                        #{index + 1}
+                      </Chip>
+                      <div className="flex-1 space-y-3">
+                        <Input
+                          label="Objective"
+                          placeholder="e.g., Identify key symptoms in patient history"
+                          size="sm"
+                          value={objective.text}
+                          onValueChange={(val) => updateObjective(objective.id, { text: val })}
+                        />
+                        <div className="grid grid-cols-2 gap-3">
+                          <Select
+                            label="Type"
+                            placeholder="Select type"
+                            selectedKeys={[objective.type]}
+                            size="sm"
+                            onSelectionChange={(keys) => 
+                              updateObjective(objective.id, { type: Array.from(keys)[0] as "knowledge" | "skill" | "attitude" })
+                            }
+                          >
+                            <SelectItem key="knowledge">Knowledge</SelectItem>
+                            <SelectItem key="skill">Skill</SelectItem>
+                            <SelectItem key="attitude">Attitude</SelectItem>
+                          </Select>
+                          <div>
+                            <label className="text-sm text-default-600 mb-1 block">
+                              Weight: {objective.weight}
+                            </label>
+                            <Slider
+                              aria-label="Weight"
+                              maxValue={10}
+                              minValue={1}
+                              size="sm"
+                              step={1}
+                              value={objective.weight}
+                              onChange={(val) => updateObjective(objective.id, { weight: val as number })}
+                            />
+                          </div>
+                        </div>
+                      </div>
+                      <Button
+                        isIconOnly
+                        color="danger"
+                        size="sm"
+                        variant="light"
+                        onPress={() => handleRemoveObjective(objective.id)}
+                      >
+                        <X className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  </div>
+                </Card>
+              ))}
+            </CardBody>
+          </Card>
+
+          {/* Memory Prompt (AI Context) */}
+          <Card className="border border-default-200">
+            <CardHeader>
+              <div className="flex items-center gap-2">
+                <Brain className="w-5 h-5 text-secondary" />
+                <div>
+                  <h3 className="text-lg font-semibold">Memory Prompt</h3>
+                  <p className="text-sm text-default-500">
+                    Provide context and knowledge for the AI to use during conversations
+                  </p>
+                </div>
+              </div>
+            </CardHeader>
+            <CardBody>
+              <Textarea
+                description="This information will be injected into the AI's context. Include facts, guidelines, expected responses, and any domain knowledge the AI should have."
+                maxRows={20}
+                minRows={8}
+                placeholder="Enter the knowledge and context the AI should have for this case...
+
+Example:
+- Patient is a 45-year-old male presenting with chest pain
+- Key symptoms to look for: shortness of breath, radiating pain
+- Correct diagnosis: Acute coronary syndrome
+- Student should ask about: onset, duration, severity, associated symptoms"
+                value={memoryPrompt}
+                onValueChange={setMemoryPrompt}
+              />
+            </CardBody>
+          </Card>
+
           <div className="space-y-4">
             <div className="flex items-center justify-between">
               <div>
                 <h3 className="text-lg font-semibold">Case Avatars</h3>
                 <p className="text-sm text-default-500">
-                  Manage avatars associated with this case study
+                  Select avatars from your existing avatars to associate with this case
                 </p>
               </div>
               <Button
@@ -312,7 +569,7 @@ export default function CaseDetailPage() {
                 size="sm"
                 startContent={<Plus className="w-4 h-4" />}
                 variant="bordered"
-                onPress={handleAddAvatar}
+                onPress={onAvatarModalOpen}
               >
                 Add Avatar
               </Button>
@@ -320,9 +577,10 @@ export default function CaseDetailPage() {
 
             {avatars.length === 0 && (
               <div className="text-center py-8 text-default-400">
+                <User className="w-8 h-8 mx-auto mb-2 opacity-50" />
                 <p>No avatars associated with this case</p>
                 <p className="text-sm">
-                  Click &quot;Add Avatar&quot; to add your first avatar
+                  Click &quot;Add Avatar&quot; to select from existing avatars
                 </p>
               </div>
             )}
@@ -332,25 +590,17 @@ export default function CaseDetailPage() {
                 <Card key={avatar.id} className="p-4">
                   <div className="space-y-3">
                     <div className="flex items-center justify-between">
-                      <div className="flex-1 grid grid-cols-1 md:grid-cols-2 gap-3">
-                        <Input
-                          label="Avatar Name"
-                          placeholder="e.g., Sarah Chen - CEO"
-                          size="sm"
-                          value={avatar.name}
-                          onValueChange={(val) =>
-                            updateAvatar(avatar.id, { name: val })
-                          }
-                        />
-                        <Input
-                          label="Role"
-                          placeholder="e.g., Chief Executive Officer"
-                          size="sm"
-                          value={avatar.role}
-                          onValueChange={(val) =>
-                            updateAvatar(avatar.id, { role: val })
-                          }
-                        />
+                      <div className="flex items-center gap-3 flex-1">
+                        <div className="w-10 h-10 bg-primary-100 rounded-full flex items-center justify-center">
+                          <User className="w-5 h-5 text-primary" />
+                        </div>
+                        <div className="flex-1">
+                          <p className="font-semibold">{avatar.name}</p>
+                          <p className="text-sm text-default-500">{avatar.role || "No role specified"}</p>
+                        </div>
+                        <Chip size="sm" variant="flat" color="primary">
+                          {avatar.id}
+                        </Chip>
                       </div>
                       <Button
                         isIconOnly
@@ -365,10 +615,10 @@ export default function CaseDetailPage() {
                     </div>
 
                     <Textarea
-                      label="Additional Background Information"
+                      label="Additional Context for this Case"
                       maxRows={8}
-                      minRows={3}
-                      placeholder="Add specific context or background for this avatar in this case..."
+                      minRows={2}
+                      placeholder="Add specific context or instructions for this avatar in this case..."
                       value={avatar.additionalInfo}
                       onValueChange={(val) =>
                         updateAvatar(avatar.id, { additionalInfo: val })
@@ -440,6 +690,38 @@ export default function CaseDetailPage() {
                 {generatedId || "—"}
               </p>
             </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <p className="text-sm font-medium">Status:</p>
+                <Chip 
+                  size="sm" 
+                  color={status === "published" ? "success" : status === "archived" ? "default" : "warning"}
+                  variant="flat"
+                >
+                  {status.charAt(0).toUpperCase() + status.slice(1)}
+                </Chip>
+              </div>
+              <div>
+                <p className="text-sm font-medium">Difficulty:</p>
+                <Chip 
+                  size="sm" 
+                  color={difficulty === "advanced" ? "danger" : difficulty === "intermediate" ? "warning" : "success"}
+                  variant="flat"
+                >
+                  {difficulty.charAt(0).toUpperCase() + difficulty.slice(1)}
+                </Chip>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <p className="text-sm font-medium">Duration:</p>
+                <p className="text-sm text-default-600">{estimatedDuration} min</p>
+              </div>
+              <div>
+                <p className="text-sm font-medium">Objectives:</p>
+                <p className="text-sm text-default-600">{learningObjectives.length}</p>
+              </div>
+            </div>
             <div>
               <p className="text-sm font-medium">Number of Avatars:</p>
               <p className="text-sm text-default-600">{avatars.length}</p>
@@ -505,6 +787,94 @@ export default function CaseDetailPage() {
                   onPress={handleDelete}
                 >
                   {isDeleting ? "Deleting..." : "Delete Case"}
+                </Button>
+              </ModalFooter>
+            </>
+          )}
+        </ModalContent>
+      </Modal>
+
+      {/* Avatar Selection Modal */}
+      <Modal 
+        isOpen={isAvatarModalOpen} 
+        onOpenChange={onAvatarModalOpenChange}
+        size="2xl"
+        scrollBehavior="inside"
+      >
+        <ModalContent>
+          {(onClose) => (
+            <>
+              <ModalHeader className="flex flex-col gap-1">
+                <h3 className="text-lg font-semibold">Select Avatar</h3>
+                <p className="text-sm text-default-500">
+                  Choose an avatar from your existing avatars to add to this case
+                </p>
+              </ModalHeader>
+              <ModalBody>
+                <Input
+                  placeholder="Search avatars by name or title..."
+                  startContent={<Search className="w-4 h-4 text-default-400" />}
+                  value={avatarSearchQuery}
+                  onValueChange={setAvatarSearchQuery}
+                  className="mb-4"
+                />
+                
+                {loadingAvatars && (
+                  <div className="text-center py-8">
+                    <p className="text-default-500">Loading avatars...</p>
+                  </div>
+                )}
+
+                {!loadingAvatars && filteredAvailableAvatars.length === 0 && (
+                  <div className="text-center py-8 text-default-400">
+                    <User className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                    {avatarSearchQuery ? (
+                      <p>No avatars found matching &quot;{avatarSearchQuery}&quot;</p>
+                    ) : availableAvatars.length === avatars.length ? (
+                      <p>All available avatars have been added to this case</p>
+                    ) : (
+                      <p>No avatars available. Create avatars in Avatar Management first.</p>
+                    )}
+                  </div>
+                )}
+
+                <div className="space-y-2">
+                  {filteredAvailableAvatars.map((avatar) => (
+                    <Card 
+                      key={avatar.id} 
+                      className="p-3 cursor-pointer hover:bg-default-100 transition-colors"
+                      isPressable
+                      onPress={() => handleAddAvatarFromSystem(avatar)}
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="w-12 h-12 bg-primary-100 rounded-full flex items-center justify-center">
+                          <User className="w-6 h-6 text-primary" />
+                        </div>
+                        <div className="flex-1">
+                          <p className="font-semibold">{avatar.name}</p>
+                          <p className="text-sm text-default-500">{avatar.title || "No title"}</p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          {avatar.published && (
+                            <Chip size="sm" color="success" variant="flat">Published</Chip>
+                          )}
+                          <Button
+                            size="sm"
+                            color="primary"
+                            variant="flat"
+                            onPress={() => handleAddAvatarFromSystem(avatar)}
+                          >
+                            Add
+                          </Button>
+                        </div>
+                      </div>
+                    </Card>
+                  ))}
+                </div>
+              </ModalBody>
+              <ModalFooter>
+                <Button variant="light" onPress={onClose}>
+                  Cancel
                 </Button>
               </ModalFooter>
             </>

@@ -1,4 +1,4 @@
-import type { CaseStudy } from "@/types";
+import type { CaseStudy, LearningObjective, CaseDifficulty, CaseStatus } from "@/types";
 
 class CaseStorage {
   private generateId(name: string): string {
@@ -23,6 +23,12 @@ class CaseStorage {
     const caseStudy: CaseStudy = {
       ...caseData,
       id,
+      learningObjectives: caseData.learningObjectives || [],
+      difficulty: caseData.difficulty || "beginner",
+      estimatedDuration: caseData.estimatedDuration || 30,
+      status: caseData.status || "draft",
+      memoryPrompt: caseData.memoryPrompt || "",
+      cohortIds: caseData.cohortIds || [],
       createdAt: now,
       lastEditedAt: now,
     };
