@@ -112,11 +112,7 @@ export default function CohortManagementPage() {
   };
 
   const handleViewLearners = (cohortId: string) => {
-    addToast({
-      title: "Coming Soon",
-      description: "Learner view will be available soon",
-      color: "warning",
-    });
+    router.push(`/cohort-management/learners/${cohortId}`);
   };
 
   const handleDeleteClick = (cohortId: string) => {
