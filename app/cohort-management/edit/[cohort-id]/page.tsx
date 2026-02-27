@@ -7,26 +7,39 @@ import { Input, Textarea } from "@heroui/input";
 import { Card, CardBody, CardHeader } from "@heroui/card";
 import { Checkbox } from "@heroui/checkbox";
 import {
+  Modal,
+  ModalContent,
+  ModalHeader,
+  ModalBody,
+  ModalFooter,
+} from "@heroui/modal";
+import {
   ArrowLeft,
   Save,
   Trash2,
   Copy,
   Users,
   Calendar,
-  Settings,
   Upload,
   Check,
+  Link as LinkIcon,
+  BookOpen,
+  Plus,
+  X,
 } from "lucide-react";
+import { Chip } from "@heroui/chip";
 import { addToast } from "@heroui/toast";
 import { title as pageTitle } from "@/components/primitives";
 import { cohortStorage } from "@/lib/cohort-storage";
+import { caseStorage } from "@/lib/case-storage";
 import type {
-  CohortMode,
+  AccessMode,
   CohortStudent,
   CohortCreateInput,
   CachedCohort,
 } from "@/types/cohort";
-import { COHORT_MODE_LABELS, COHORT_MODE_DESCRIPTIONS } from "@/types/cohort";
+import { ACCESS_MODE_LABELS } from "@/types/cohort";
+import type { CaseStudy } from "@/types";
 
 export default function CohortEditPage() {
   const params = useParams();
@@ -42,49 +55,35 @@ export default function CohortEditPage() {
   // Form state
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
-  const [caseId, setCaseId] = useState("");
-  const [caseName, setCaseName] = useState("");
-  const [maxDays, setMaxDays] = useState(30);
-  const [startDate, setStartDate] = useState("");
-  const [endDate, setEndDate] = useState("");
+  const [availableDate, setAvailableDate] = useState<string | null>(null); // null = Now
+  const [expirationDate, setExpirationDate] = useState<string | null>(null); // null = Never
+  const [availableNow, setAvailableNow] = useState(true);
+  const [neverExpires, setNeverExpires] = useState(true);
   const [emailsText, setEmailsText] = useState("");
   const [students, setStudents] = useState<CohortStudent[]>([]);
-  const [accessCode, setAccessCode] = useState("");
-  const [cohortMode, setCohortMode] = useState<CohortMode>("practice");
+  const [accessMode, setAccessMode] = useState<AccessMode>("anyone");
   const [isActive, setIsActive] = useState(true);
+
+  // Case assignment state (following Alfred's schema pattern)
+  const [availableCases, setAvailableCases] = useState<CaseStudy[]>([]);
+  const [assignedCaseIds, setAssignedCaseIds] = useState<string[]>([]);
+  const [loadingCases, setLoadingCases] = useState(true);
+
+  // Modal state for showing access code after creation
+  const [showSuccessModal, setShowSuccessModal] = useState(false);
+  const [createdAccessCode, setCreatedAccessCode] = useState("");
+  const [createdJoinLink, setCreatedJoinLink] = useState("");
 
   const [errors, setErrors] = useState<Record<string, string>>({});
 
+  // For existing cohorts, compute join link
   const joinLink = useMemo(() => {
-    if (!accessCode) return "";
+    if (!existing?.accessCode) return "";
     if (typeof window !== "undefined") {
-      return `${window.location.origin}/join/${accessCode}`;
+      return `${window.location.origin}/join/${existing.accessCode}`;
     }
-    return `/join/${accessCode}`;
-  }, [accessCode]);
-
-  // Generate access code on mount for new cohorts
-  useEffect(() => {
-    if (isNew && !accessCode) {
-      const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-      let code = "";
-      for (let i = 0; i < 6; i++) {
-        code += chars.charAt(Math.floor(Math.random() * chars.length));
-      }
-      setAccessCode(code);
-    }
-  }, [isNew, accessCode]);
-
-  // Set default dates for new cohorts
-  useEffect(() => {
-    if (isNew && !startDate) {
-      const today = new Date();
-      const nextMonth = new Date(today);
-      nextMonth.setMonth(nextMonth.getMonth() + 1);
-      setStartDate(today.toISOString().split("T")[0]);
-      setEndDate(nextMonth.toISOString().split("T")[0]);
-    }
-  }, [isNew, startDate]);
+    return `/join/${existing.accessCode}`;
+  }, [existing?.accessCode]);
 
   // Load existing cohort
   useEffect(() => {
@@ -96,16 +95,29 @@ export default function CohortEditPage() {
             setExisting(cohort);
             setName(cohort.name);
             setDescription(cohort.description || "");
-            setCaseId(cohort.caseId || "");
-            setCaseName(cohort.caseName || "");
-            setMaxDays(cohort.maxDays);
-            setStartDate(cohort.startDate);
-            setEndDate(cohort.endDate);
-            setStudents(cohort.students || []);
-            setAccessCode(cohort.accessCode);
-            setCohortMode(cohort.cohortMode);
+            setAccessMode(cohort.accessMode);
             setIsActive(cohort.isActive);
+            setStudents(cohort.students || []);
             setEmailsText(cohort.students?.map((s) => s.email).join("\n") || "");
+            setAssignedCaseIds(cohort.assignedCaseIds || []);
+
+            // Handle available date
+            if (cohort.availableDate) {
+              setAvailableNow(false);
+              setAvailableDate(cohort.availableDate);
+            } else {
+              setAvailableNow(true);
+              setAvailableDate(null);
+            }
+
+            // Handle expiration date
+            if (cohort.expirationDate) {
+              setNeverExpires(false);
+              setExpirationDate(cohort.expirationDate);
+            } else {
+              setNeverExpires(true);
+              setExpirationDate(null);
+            }
           }
         })
         .catch((err) => {
@@ -116,6 +128,35 @@ export default function CohortEditPage() {
       setLoading(false);
     }
   }, [cohortId, isNew]);
+
+  // Load available cases
+  useEffect(() => {
+    caseStorage
+      .list()
+      .then((cases) => {
+        setAvailableCases(cases);
+      })
+      .catch((err) => {
+        console.error("Failed to load cases:", err);
+      })
+      .finally(() => setLoadingCases(false));
+  }, []);
+
+  const toggleCaseAssignment = (caseId: string) => {
+    setAssignedCaseIds((prev) =>
+      prev.includes(caseId)
+        ? prev.filter((id) => id !== caseId)
+        : [...prev, caseId]
+    );
+  };
+
+  const getAssignedCases = () => {
+    return availableCases.filter((c) => assignedCaseIds.includes(c.id));
+  };
+
+  const getUnassignedCases = () => {
+    return availableCases.filter((c) => !assignedCaseIds.includes(c.id));
+  };
 
   const parseEmails = (): CohortStudent[] => {
     const emails = emailsText
@@ -165,26 +206,27 @@ export default function CohortEditPage() {
 
   const copyToClipboard = (text: string, successMessage: string) => {
     if (!text) return;
-    
-    // Try modern clipboard API first
+
     if (navigator?.clipboard?.writeText) {
-      navigator.clipboard.writeText(text).then(() => {
-        addToast({
-          title: "Copied",
-          description: successMessage,
-          color: "success",
+      navigator.clipboard
+        .writeText(text)
+        .then(() => {
+          addToast({
+            title: "Copied",
+            description: successMessage,
+            color: "success",
+          });
+        })
+        .catch((err) => {
+          console.error("Clipboard API failed:", err);
+          fallbackCopy(text, successMessage);
         });
-      }).catch((err) => {
-        console.error("Clipboard API failed:", err);
-        fallbackCopy(text, successMessage);
-      });
     } else {
       fallbackCopy(text, successMessage);
     }
   };
 
   const fallbackCopy = (text: string, successMessage: string) => {
-    // Fallback for older browsers or non-HTTPS contexts
     const textArea = document.createElement("textarea");
     textArea.value = text;
     textArea.style.position = "fixed";
@@ -193,7 +235,7 @@ export default function CohortEditPage() {
     document.body.appendChild(textArea);
     textArea.focus();
     textArea.select();
-    
+
     try {
       document.execCommand("copy");
       addToast({
@@ -209,26 +251,32 @@ export default function CohortEditPage() {
         color: "danger",
       });
     }
-    
+
     document.body.removeChild(textArea);
-  };
-
-  const copyJoinLink = () => {
-    copyToClipboard(joinLink, "Join link copied to clipboard");
-  };
-
-  const copyAccessCode = () => {
-    copyToClipboard(accessCode, "Access code copied to clipboard");
   };
 
   const validate = (): boolean => {
     const e: Record<string, string> = {};
     if (!name.trim()) e.name = "Cohort name is required";
-    if (!startDate) e.startDate = "Start date is required";
-    if (!endDate) e.endDate = "End date is required";
-    if (startDate && endDate && new Date(endDate) <= new Date(startDate)) {
-      e.endDate = "End date must be after start date";
+
+    if (!availableNow && !availableDate) {
+      e.availableDate = "Please select an available date or check 'Available Now'";
     }
+
+    if (!neverExpires && !expirationDate) {
+      e.expirationDate = "Please select an expiration date or check 'Never Expires'";
+    }
+
+    if (!neverExpires && !availableNow && availableDate && expirationDate) {
+      if (new Date(expirationDate) <= new Date(availableDate)) {
+        e.expirationDate = "Expiration date must be after available date";
+      }
+    }
+
+    if (accessMode === "specific" && parseEmails().length === 0) {
+      e.emails = "Please add at least one learner email for restricted access mode";
+    }
+
     setErrors(e);
     return Object.keys(e).length === 0;
   };
@@ -240,42 +288,45 @@ export default function CohortEditPage() {
     setErrors({});
 
     try {
-      const parsedStudents = parseEmails();
+      const parsedStudents = accessMode === "specific" ? parseEmails() : [];
 
       if (isNew) {
         const input: CohortCreateInput = {
           name: name.trim(),
           description: description.trim() || undefined,
-          caseId: caseId || undefined,
-          caseName: caseName || undefined,
           professorId: "current-user",
           professorName: "Current User",
-          maxDays,
-          startDate,
-          endDate,
+          accessMode,
+          availableDate: availableNow ? null : availableDate,
+          expirationDate: neverExpires ? null : expirationDate,
+          assignedCaseIds,
           students: parsedStudents,
-          cohortMode,
         };
 
-        await cohortStorage.add(input);
-        addToast({ title: "Cohort created", color: "success" });
+        const created = await cohortStorage.add(input);
+
+        // Show success modal with access code
+        const link =
+          typeof window !== "undefined"
+            ? `${window.location.origin}/join/${created.accessCode}`
+            : `/join/${created.accessCode}`;
+        setCreatedAccessCode(created.accessCode);
+        setCreatedJoinLink(link);
+        setShowSuccessModal(true);
       } else {
         await cohortStorage.update(cohortId, {
           name: name.trim(),
           description: description.trim() || undefined,
-          caseId: caseId || undefined,
-          caseName: caseName || undefined,
-          maxDays,
-          startDate,
-          endDate,
+          accessMode,
+          availableDate: availableNow ? null : availableDate,
+          expirationDate: neverExpires ? null : expirationDate,
+          assignedCaseIds,
           students: parsedStudents,
-          cohortMode,
           isActive,
         });
         addToast({ title: "Cohort saved", color: "success" });
+        router.push("/cohort-management");
       }
-
-      router.push("/cohort-management");
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Failed to save";
       setErrors({ save: msg });
@@ -308,9 +359,14 @@ export default function CohortEditPage() {
 
   const handleBack = () => router.push("/cohort-management");
 
+  const handleModalClose = () => {
+    setShowSuccessModal(false);
+    router.push("/cohort-management");
+  };
+
   if (loading) {
     return (
-      <div className="max-w-6xl mx-auto">
+      <div className="max-w-4xl mx-auto">
         <div className="text-center py-12">
           <p className="text-default-500">Loading...</p>
         </div>
@@ -319,7 +375,7 @@ export default function CohortEditPage() {
   }
 
   return (
-    <div className="max-w-6xl mx-auto space-y-6">
+    <div className="max-w-4xl mx-auto space-y-6">
       <div className="flex items-center gap-4">
         <Button isIconOnly variant="light" onPress={handleBack}>
           <ArrowLeft />
@@ -329,302 +385,441 @@ export default function CohortEditPage() {
         </h1>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2 space-y-6">
-          {/* Basic Info */}
-          <Card>
-            <CardHeader>
-              <h2 className="text-xl font-semibold">Basic Information</h2>
-            </CardHeader>
-            <CardBody className="space-y-4">
-              <Input
-                isRequired
-                errorMessage={errors.name}
-                isInvalid={!!errors.name}
-                label="Cohort Name"
-                placeholder="e.g., Fall 2024 MBA Section A"
-                value={name}
-                onValueChange={setName}
-              />
-              <Textarea
-                label="Description (optional)"
-                placeholder="Brief description of this cohort"
-                value={description}
-                onValueChange={setDescription}
-                minRows={2}
-              />
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <Input
-                  label="Case ID (optional)"
-                  placeholder="e.g., tech-startup-expansion"
-                  value={caseId}
-                  onValueChange={setCaseId}
-                />
-                <Input
-                  label="Case Name (optional)"
-                  placeholder="e.g., Tech Startup Expansion"
-                  value={caseName}
-                  onValueChange={setCaseName}
-                />
-              </div>
-              <Input
-                type="number"
-                label="Max Days"
-                description="Maximum number of days students can interact"
-                value={String(maxDays)}
-                onValueChange={(v) => setMaxDays(parseInt(v) || 30)}
-                min={1}
-                max={365}
-              />
-            </CardBody>
-          </Card>
+      <div className="space-y-6">
+        {/* Basic Info */}
+        <Card>
+          <CardHeader>
+            <h2 className="text-xl font-semibold">Basic Information</h2>
+          </CardHeader>
+          <CardBody className="space-y-4">
+            <Input
+              isRequired
+              errorMessage={errors.name}
+              isInvalid={!!errors.name}
+              label="Cohort Name"
+              placeholder="e.g., Fall 2024 MBA Section A"
+              value={name}
+              onValueChange={setName}
+            />
+            <Textarea
+              label="Description (optional)"
+              placeholder="Brief description of this cohort"
+              value={description}
+              onValueChange={setDescription}
+              minRows={2}
+            />
+          </CardBody>
+        </Card>
 
-          {/* Timeline */}
-          <Card>
-            <CardHeader>
-              <div className="flex items-center gap-2">
-                <Calendar className="w-5 h-5" />
-                <h2 className="text-xl font-semibold">Timeline</h2>
+        {/* Timeline */}
+        <Card>
+          <CardHeader>
+            <div className="flex items-center gap-2">
+              <Calendar className="w-5 h-5" />
+              <h2 className="text-xl font-semibold">Timeline</h2>
+            </div>
+          </CardHeader>
+          <CardBody className="space-y-6">
+            {/* Available Date */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <label className="text-sm font-medium">Available Date</label>
+                <Checkbox
+                  isSelected={availableNow}
+                  onValueChange={(checked) => {
+                    setAvailableNow(checked);
+                    if (checked) setAvailableDate(null);
+                  }}
+                >
+                  Available Now
+                </Checkbox>
               </div>
-            </CardHeader>
-            <CardBody className="space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {!availableNow && (
                 <Input
                   type="date"
-                  label="Start Date"
-                  value={startDate}
-                  onValueChange={setStartDate}
-                  isRequired
-                  errorMessage={errors.startDate}
-                  isInvalid={!!errors.startDate}
+                  label="Select available date"
+                  value={availableDate || ""}
+                  onValueChange={setAvailableDate}
+                  errorMessage={errors.availableDate}
+                  isInvalid={!!errors.availableDate}
                 />
+              )}
+              <p className="text-xs text-default-400">
+                When learners can start accessing this cohort
+              </p>
+            </div>
+
+            {/* Expiration Date */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <label className="text-sm font-medium">Expiration Date</label>
+                <Checkbox
+                  isSelected={neverExpires}
+                  onValueChange={(checked) => {
+                    setNeverExpires(checked);
+                    if (checked) setExpirationDate(null);
+                  }}
+                >
+                  Never Expires
+                </Checkbox>
+              </div>
+              {!neverExpires && (
                 <Input
                   type="date"
-                  label="End Date"
-                  value={endDate}
-                  onValueChange={setEndDate}
-                  isRequired
-                  errorMessage={errors.endDate}
-                  isInvalid={!!errors.endDate}
+                  label="Select expiration date"
+                  value={expirationDate || ""}
+                  onValueChange={setExpirationDate}
+                  errorMessage={errors.expirationDate}
+                  isInvalid={!!errors.expirationDate}
                 />
-              </div>
-            </CardBody>
-          </Card>
+              )}
+              <p className="text-xs text-default-400">
+                When learners will lose access to this cohort
+              </p>
+            </div>
+          </CardBody>
+        </Card>
 
-          {/* Students */}
-          <Card>
-            <CardHeader>
-              <div className="flex items-center gap-2">
-                <Users className="w-5 h-5" />
-                <h2 className="text-xl font-semibold">Students</h2>
-              </div>
-            </CardHeader>
-            <CardBody className="space-y-4">
-              <Textarea
-                label="Student Emails"
-                placeholder="Enter email addresses (one per line, or comma-separated)"
-                value={emailsText}
-                onValueChange={setEmailsText}
-                onBlur={() => setStudents(parseEmails())}
-                minRows={6}
-              />
-              <div className="flex items-center gap-4">
-                <label className="cursor-pointer">
-                  <Button
-                    as="span"
-                    variant="bordered"
-                    startContent={<Upload className="w-4 h-4" />}
-                  >
-                    Upload CSV
-                  </Button>
-                  <input
-                    type="file"
-                    accept=".csv"
-                    onChange={handleCsvUpload}
-                    className="hidden"
-                  />
-                </label>
-                <span className="text-sm text-default-500">
-                  {students.length} student{students.length !== 1 ? "s" : ""} added
-                </span>
-              </div>
-            </CardBody>
-          </Card>
-
-          {/* Cohort Mode */}
-          <Card>
-            <CardHeader>
-              <div className="flex items-center gap-2">
-                <Settings className="w-5 h-5" />
-                <h2 className="text-xl font-semibold">Cohort Mode</h2>
-              </div>
-            </CardHeader>
-            <CardBody className="space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {(Object.keys(COHORT_MODE_LABELS) as CohortMode[]).map((mode) => (
-                  <Card
-                    key={mode}
-                    isPressable
-                    onPress={() => setCohortMode(mode)}
-                    className={`cursor-pointer transition-all ${
-                      cohortMode === mode
-                        ? "border-2 border-primary bg-primary/5"
-                        : "border-2 border-transparent"
-                    }`}
-                  >
-                    <CardBody>
-                      <div className="flex items-start gap-3">
+        {/* Learners */}
+        <Card>
+          <CardHeader>
+            <div className="flex items-center gap-2">
+              <Users className="w-5 h-5" />
+              <h2 className="text-xl font-semibold">Learners</h2>
+            </div>
+          </CardHeader>
+          <CardBody className="space-y-4">
+            {/* Access Mode Selection */}
+            <div className="space-y-3">
+              <label className="text-sm font-medium">Access Mode</label>
+              <div className="space-y-2">
+                {(Object.keys(ACCESS_MODE_LABELS) as AccessMode[]).map(
+                  (mode) => (
+                    <div
+                      key={mode}
+                      className={`p-3 rounded-lg border-2 cursor-pointer transition-all ${
+                        accessMode === mode
+                          ? "border-primary bg-primary/5"
+                          : "border-default-200 hover:border-default-300"
+                      }`}
+                      onClick={() => setAccessMode(mode)}
+                    >
+                      <div className="flex items-center gap-3">
                         <div
-                          className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
-                            cohortMode === mode
+                          className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${
+                            accessMode === mode
                               ? "border-primary bg-primary"
                               : "border-default-300"
                           }`}
                         >
-                          {cohortMode === mode && (
-                            <Check className="w-3 h-3 text-white" />
+                          {accessMode === mode && (
+                            <Check className="w-2.5 h-2.5 text-white" />
                           )}
                         </div>
-                        <div>
-                          <h3 className="font-semibold">
-                            {COHORT_MODE_LABELS[mode]}
-                          </h3>
-                          <p className="text-sm text-default-500 mt-1">
-                            {COHORT_MODE_DESCRIPTIONS[mode]}
-                          </p>
-                        </div>
+                        <span className="text-sm">
+                          {ACCESS_MODE_LABELS[mode]}
+                        </span>
                       </div>
-                    </CardBody>
-                  </Card>
-                ))}
+                    </div>
+                  )
+                )}
               </div>
-
-              {!isNew && (
-                <Checkbox isSelected={isActive} onValueChange={setIsActive}>
-                  Cohort is active
-                </Checkbox>
-              )}
-            </CardBody>
-          </Card>
-
-          {errors.save && (
-            <div className="p-3 bg-danger-50 border border-danger-200 rounded text-danger-700 text-sm">
-              {errors.save}
             </div>
-          )}
 
-          <div className="flex gap-3 flex-wrap">
-            <Button
-              color="primary"
-              isDisabled={!name.trim()}
-              isLoading={saving}
-              startContent={!saving ? <Save className="w-4 h-4" /> : null}
-              onPress={handleSave}
-            >
-              {saving ? "Saving..." : isNew ? "Create Cohort" : "Save"}
-            </Button>
-            <Button variant="bordered" onPress={handleBack}>
-              Cancel
-            </Button>
-            {!isNew && existing && (
-              <Button
-                color="danger"
-                variant="flat"
-                isLoading={deleting}
-                startContent={!deleting ? <Trash2 className="w-4 h-4" /> : null}
-                onPress={handleDelete}
-              >
-                Delete
-              </Button>
+            {/* Email input - only enabled for specific learners mode */}
+            {accessMode === "specific" && (
+              <div className="space-y-4 pt-4 border-t">
+                <Textarea
+                  label="Learner Emails"
+                  placeholder="Enter email addresses (one per line, or comma-separated)"
+                  value={emailsText}
+                  onValueChange={setEmailsText}
+                  onBlur={() => setStudents(parseEmails())}
+                  minRows={6}
+                  errorMessage={errors.emails}
+                  isInvalid={!!errors.emails}
+                />
+                <div className="flex items-center gap-4">
+                  <label className="cursor-pointer">
+                    <Button
+                      as="span"
+                      variant="bordered"
+                      startContent={<Upload className="w-4 h-4" />}
+                    >
+                      Upload CSV
+                    </Button>
+                    <input
+                      type="file"
+                      accept=".csv"
+                      onChange={handleCsvUpload}
+                      className="hidden"
+                    />
+                  </label>
+                  <span className="text-sm text-default-500">
+                    {students.length} learner{students.length !== 1 ? "s" : ""}{" "}
+                    added
+                  </span>
+                </div>
+              </div>
             )}
-          </div>
-        </div>
 
-        {/* Sidebar */}
-        <div className="space-y-6">
-          {/* Access Code Card */}
+            {accessMode === "anyone" && (
+              <p className="text-sm text-default-500 pt-2">
+                Anyone with the access code will be able to join this cohort.
+                You&apos;ll receive the access code after creating the cohort.
+              </p>
+            )}
+          </CardBody>
+        </Card>
+
+        {/* Case Assignment - Following Alfred's schema pattern */}
+        <Card>
+          <CardHeader>
+            <div className="flex items-center gap-2">
+              <BookOpen className="w-5 h-5" />
+              <h2 className="text-xl font-semibold">Assigned Cases</h2>
+            </div>
+          </CardHeader>
+          <CardBody className="space-y-4">
+            <p className="text-sm text-default-500">
+              Select which case studies learners in this cohort will have access to.
+            </p>
+
+            {loadingCases ? (
+              <p className="text-default-400 text-sm">Loading cases...</p>
+            ) : availableCases.length === 0 ? (
+              <div className="text-center py-6 text-default-400">
+                <BookOpen className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                <p>No cases available</p>
+                <p className="text-xs mt-1">Create cases in Case Management first</p>
+              </div>
+            ) : (
+              <>
+                {/* Assigned Cases */}
+                {assignedCaseIds.length > 0 && (
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium text-default-700">
+                      Assigned ({assignedCaseIds.length})
+                    </label>
+                    <div className="flex flex-wrap gap-2">
+                      {getAssignedCases().map((caseItem) => (
+                        <Chip
+                          key={caseItem.id}
+                          color="primary"
+                          variant="flat"
+                          onClose={() => toggleCaseAssignment(caseItem.id)}
+                          classNames={{
+                            base: "max-w-full",
+                            content: "truncate",
+                          }}
+                        >
+                          {caseItem.name}
+                        </Chip>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Available Cases to Add */}
+                {getUnassignedCases().length > 0 && (
+                  <div className="space-y-2 pt-2 border-t">
+                    <label className="text-sm font-medium text-default-700">
+                      Available Cases
+                    </label>
+                    <div className="grid gap-2">
+                      {getUnassignedCases().map((caseItem) => (
+                        <div
+                          key={caseItem.id}
+                          className="flex items-center justify-between p-3 rounded-lg border border-default-200 hover:border-primary hover:bg-primary/5 cursor-pointer transition-all"
+                          onClick={() => toggleCaseAssignment(caseItem.id)}
+                        >
+                          <div className="flex-1 min-w-0">
+                            <p className="font-medium text-sm truncate">
+                              {caseItem.name}
+                            </p>
+                            {caseItem.avatars && caseItem.avatars.length > 0 && (
+                              <p className="text-xs text-default-400">
+                                {caseItem.avatars.length} avatar{caseItem.avatars.length !== 1 ? "s" : ""}
+                              </p>
+                            )}
+                          </div>
+                          <Button
+                            size="sm"
+                            variant="light"
+                            color="primary"
+                            isIconOnly
+                          >
+                            <Plus className="w-4 h-4" />
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {assignedCaseIds.length === 0 && (
+                  <p className="text-sm text-warning-600 bg-warning-50 p-3 rounded-lg">
+                    No cases assigned. Learners won&apos;t see any case studies until you assign at least one.
+                  </p>
+                )}
+              </>
+            )}
+          </CardBody>
+        </Card>
+
+        {/* Existing cohort: Show access code and active status */}
+        {!isNew && existing && (
           <Card>
             <CardHeader>
-              <h3 className="text-lg font-semibold">Access Code</h3>
+              <div className="flex items-center gap-2">
+                <LinkIcon className="w-5 h-5" />
+                <h2 className="text-xl font-semibold">Access</h2>
+              </div>
             </CardHeader>
             <CardBody className="space-y-4">
-              <div className="text-center">
-                <code className="text-3xl font-mono font-bold text-primary">
-                  {accessCode}
-                </code>
+              <div className="flex items-center justify-between p-4 bg-default-100 rounded-lg">
+                <div>
+                  <p className="text-sm text-default-500">Access Code</p>
+                  <code className="text-2xl font-mono font-bold text-primary">
+                    {existing.accessCode}
+                  </code>
+                </div>
+                <Button
+                  variant="bordered"
+                  size="sm"
+                  startContent={<Copy className="w-4 h-4" />}
+                  onPress={() =>
+                    copyToClipboard(
+                      existing.accessCode,
+                      "Access code copied to clipboard"
+                    )
+                  }
+                >
+                  Copy
+                </Button>
               </div>
+
+              <div className="flex items-center justify-between p-4 bg-default-100 rounded-lg">
+                <div className="flex-1 mr-4">
+                  <p className="text-sm text-default-500">Join Link</p>
+                  <p className="text-sm font-mono truncate">{joinLink}</p>
+                </div>
+                <Button
+                  variant="bordered"
+                  size="sm"
+                  startContent={<Copy className="w-4 h-4" />}
+                  onPress={() =>
+                    copyToClipboard(joinLink, "Join link copied to clipboard")
+                  }
+                >
+                  Copy
+                </Button>
+              </div>
+
+              <Checkbox isSelected={isActive} onValueChange={setIsActive}>
+                Cohort is active
+              </Checkbox>
+            </CardBody>
+          </Card>
+        )}
+
+        {errors.save && (
+          <div className="p-3 bg-danger-50 border border-danger-200 rounded text-danger-700 text-sm">
+            {errors.save}
+          </div>
+        )}
+
+        <div className="flex gap-3 flex-wrap">
+          <Button
+            color="primary"
+            isDisabled={!name.trim()}
+            isLoading={saving}
+            startContent={!saving ? <Save className="w-4 h-4" /> : null}
+            onPress={handleSave}
+          >
+            {saving ? "Saving..." : isNew ? "Create Cohort" : "Save Changes"}
+          </Button>
+          <Button variant="bordered" onPress={handleBack}>
+            Cancel
+          </Button>
+          {!isNew && existing && (
+            <Button
+              color="danger"
+              variant="flat"
+              isLoading={deleting}
+              startContent={!deleting ? <Trash2 className="w-4 h-4" /> : null}
+              onPress={handleDelete}
+            >
+              Delete
+            </Button>
+          )}
+        </div>
+      </div>
+
+      {/* Success Modal - shown after creating a new cohort */}
+      <Modal isOpen={showSuccessModal} onClose={handleModalClose} size="md">
+        <ModalContent>
+          <ModalHeader className="flex flex-col gap-1">
+            <div className="flex items-center gap-2">
+              <Check className="w-6 h-6 text-success" />
+              <span>Cohort Created!</span>
+            </div>
+          </ModalHeader>
+          <ModalBody className="space-y-4">
+            <p className="text-default-600">
+              Your cohort <strong>{name}</strong> has been created successfully.
+              Share the access code or link with your learners.
+            </p>
+
+            <div className="p-4 bg-default-100 rounded-lg text-center">
+              <p className="text-sm text-default-500 mb-2">Access Code</p>
+              <code className="text-3xl font-mono font-bold text-primary">
+                {createdAccessCode}
+              </code>
+            </div>
+
+            <div className="flex gap-2">
               <Button
                 fullWidth
                 variant="bordered"
                 startContent={<Copy className="w-4 h-4" />}
-                onPress={copyAccessCode}
+                onPress={() =>
+                  copyToClipboard(
+                    createdAccessCode,
+                    "Access code copied to clipboard"
+                  )
+                }
               >
                 Copy Code
               </Button>
-              <p className="text-sm text-default-500 text-center">
-                Students use this code to join the cohort
-              </p>
-            </CardBody>
-          </Card>
-
-          {/* Join Link Card */}
-          <Card>
-            <CardHeader>
-              <h3 className="text-lg font-semibold">Join Link</h3>
-            </CardHeader>
-            <CardBody className="space-y-4">
-              <Input value={joinLink} isReadOnly size="sm" />
               <Button
                 fullWidth
                 variant="bordered"
-                startContent={<Copy className="w-4 h-4" />}
-                onPress={copyJoinLink}
+                startContent={<LinkIcon className="w-4 h-4" />}
+                onPress={() =>
+                  copyToClipboard(
+                    createdJoinLink,
+                    "Join link copied to clipboard"
+                  )
+                }
               >
                 Copy Link
               </Button>
-              <p className="text-sm text-default-500 text-center">
-                Share this link with students to join
-              </p>
-            </CardBody>
-          </Card>
+            </div>
 
-          {/* Summary Card */}
-          <Card>
-            <CardHeader>
-              <h3 className="text-lg font-semibold">Summary</h3>
-            </CardHeader>
-            <CardBody className="space-y-3">
-              <div className="flex justify-between text-sm">
-                <span className="text-default-500">Students:</span>
-                <span className="font-medium">{students.length}</span>
-              </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-default-500">Duration:</span>
-                <span className="font-medium">
-                  {startDate && endDate
-                    ? Math.ceil(
-                        (new Date(endDate).getTime() -
-                          new Date(startDate).getTime()) /
-                          (1000 * 60 * 60 * 24)
-                      )
-                    : 0}{" "}
-                  days
-                </span>
-              </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-default-500">Max Days:</span>
-                <span className="font-medium">{maxDays}</span>
-              </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-default-500">Mode:</span>
-                <span className="font-medium">
-                  {COHORT_MODE_LABELS[cohortMode]}
-                </span>
-              </div>
-            </CardBody>
-          </Card>
-        </div>
-      </div>
+            <div className="p-3 bg-default-50 rounded-lg">
+              <p className="text-xs text-default-500 break-all">
+                {createdJoinLink}
+              </p>
+            </div>
+          </ModalBody>
+          <ModalFooter>
+            <Button color="primary" onPress={handleModalClose}>
+              Done
+            </Button>
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
     </div>
   );
 }

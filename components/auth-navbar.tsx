@@ -27,6 +27,7 @@ import {
   Video,
   Briefcase,
   History,
+  GraduationCap,
 } from "lucide-react";
 
 import { siteConfig } from "@/config/site";
@@ -44,6 +45,7 @@ const iconMap = {
   Video,
   Briefcase,
   History,
+  GraduationCap,
 } as const;
 
 export const AuthNavbar = () => {

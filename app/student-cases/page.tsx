@@ -1,131 +1,151 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { Card, CardBody, CardHeader } from "@heroui/card";
-import { Input } from "@heroui/input";
 import { Button } from "@heroui/button";
-import { Briefcase, Plus, Calendar, User } from "lucide-react";
+import { Chip } from "@heroui/chip";
+import { Briefcase, BookOpen, Users, RefreshCw } from "lucide-react";
 
 import { title } from "@/components/primitives";
 import { useAuth } from "@/lib/auth-context";
+import type { CaseStudy } from "@/types";
 
-interface StudentCase {
-  id: string;
-  name: string;
-  code: string;
-  instructor: string;
-  description: string;
-  dueDate: string;
-  status: "not_started" | "in_progress" | "completed";
+interface StudentCaseWithCohort extends CaseStudy {
+  cohortId?: string;
+  cohortName?: string;
 }
 
-const mockCases: StudentCase[] = [
-  {
-    id: "case-001",
-    name: "Digital Transformation at RetailCo",
-    code: "MGMT-401-A",
-    instructor: "Dr. Sarah Chen",
-    description:
-      "Analyze the digital transformation strategy of a major retail company and propose recommendations for improving their e-commerce presence.",
-    dueDate: "2024-03-15",
-    status: "in_progress",
-  },
-  {
-    id: "case-002",
-    name: "Supply Chain Optimization",
-    code: "OPMT-350-B",
-    instructor: "Prof. Michael Torres",
-    description:
-      "Evaluate the supply chain challenges faced by a manufacturing firm and develop a comprehensive optimization plan.",
-    dueDate: "2024-03-22",
-    status: "not_started",
-  },
-  {
-    id: "case-003",
-    name: "Marketing Strategy for TechStart",
-    code: "MKTG-420-A",
-    instructor: "Dr. Emily Watson",
-    description:
-      "Develop a go-to-market strategy for a B2B SaaS startup entering the enterprise market.",
-    dueDate: "2024-02-28",
-    status: "completed",
-  },
-];
-
-const statusConfig = {
-  not_started: { label: "Not Started", color: "default" as const },
-  in_progress: { label: "In Progress", color: "primary" as const },
-  completed: { label: "Completed", color: "success" as const },
-};
+interface StudentCohort {
+  id: string;
+  name: string;
+  assignedCaseIds: string[];
+}
 
 export default function StudentCasesPage() {
   const { user } = useAuth();
-  const [cases, setCases] = useState<StudentCase[]>(mockCases);
-  const [caseCode, setCaseCode] = useState("");
-  const [isAdding, setIsAdding] = useState(false);
+  const router = useRouter();
+  const [cases, setCases] = useState<StudentCaseWithCohort[]>([]);
+  const [cohorts, setCohorts] = useState<StudentCohort[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  const handleAddCase = () => {
-    if (!caseCode.trim()) return;
+  const loadCases = async () => {
+    if (!user?.email) {
+      console.log("[Student Cases] No user email found");
+      setLoading(false);
+      return;
+    }
 
-    setIsAdding(true);
+    console.log("[Student Cases] Loading cases for email:", user.email);
 
-    setTimeout(() => {
-      const newCase: StudentCase = {
-        id: `case-${Date.now()}`,
-        name: "New Assigned Case",
-        code: caseCode.toUpperCase(),
-        instructor: "TBD",
-        description: "Case details will be loaded from the system.",
-        dueDate: "2024-04-01",
-        status: "not_started",
-      };
+    try {
+      setLoading(true);
+      setError(null);
 
-      setCases([newCase, ...cases]);
-      setCaseCode("");
-      setIsAdding(false);
-    }, 500);
+      const response = await fetch(
+        `/api/student/cases?email=${encodeURIComponent(user.email)}`
+      );
+
+      if (!response.ok) {
+        throw new Error("Failed to fetch cases");
+      }
+
+      const data = await response.json();
+      console.log("[Student Cases] API response:", data);
+      setCases(data.cases || []);
+      setCohorts(data.cohorts || []);
+    } catch (err) {
+      console.error("Error loading cases:", err);
+      setError("Failed to load your cases. Please try again.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadCases();
+  }, [user?.email]);
+
+  const handleCaseClick = (caseId: string) => {
+    router.push(`/case/${caseId}`);
   };
 
   return (
     <div className="flex flex-col gap-8">
-      <div className="flex flex-col gap-2">
-        <h1 className={title()}>
-          {user?.name ? `${user.name}'s Cases` : "My Cases"}
-        </h1>
-        <p className="text-default-500">
-          View your assigned cases and add new ones using a case code.
-        </p>
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div className="flex flex-col gap-2">
+          <h1 className={title()}>
+            {user?.name ? `${user.name}'s Cases` : "My Cases"}
+          </h1>
+          <p className="text-default-500">
+            View your assigned cases from your enrolled cohorts.
+          </p>
+        </div>
+        <Button
+          variant="bordered"
+          startContent={<RefreshCw className="w-4 h-4" />}
+          onPress={loadCases}
+          isLoading={loading}
+        >
+          Refresh
+        </Button>
       </div>
 
-      <Card className="bg-default-50">
-        <CardBody className="gap-4">
-          <div className="flex flex-col sm:flex-row gap-4">
-            <Input
-              className="flex-1"
-              placeholder="Enter case code or link (e.g., MGMT-401-A)"
-              value={caseCode}
-              onChange={(e) => setCaseCode(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && handleAddCase()}
-            />
-            <Button
-              color="primary"
-              isLoading={isAdding}
-              startContent={!isAdding && <Plus size={18} />}
-              onPress={handleAddCase}
-            >
-              Add Case
-            </Button>
-          </div>
-        </CardBody>
-      </Card>
+      {/* Enrolled Cohorts Summary */}
+      {cohorts.length > 0 && (
+        <Card className="bg-default-50">
+          <CardBody>
+            <div className="flex items-center gap-2 mb-3">
+              <Users className="w-4 h-4 text-default-500" />
+              <span className="text-sm font-medium">Your Cohorts</span>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {cohorts.map((cohort) => (
+                <Chip key={cohort.id} variant="flat" color="primary" size="sm">
+                  {cohort.name} ({cohort.assignedCaseIds.length} case
+                  {cohort.assignedCaseIds.length !== 1 ? "s" : ""})
+                </Chip>
+              ))}
+            </div>
+          </CardBody>
+        </Card>
+      )}
 
-      {cases.length === 0 ? (
+      {loading ? (
+        <Card className="bg-default-50">
+          <CardBody className="py-12 text-center">
+            <p className="text-default-500">Loading your cases...</p>
+          </CardBody>
+        </Card>
+      ) : error ? (
+        <Card className="bg-danger-50">
+          <CardBody className="py-12 text-center">
+            <p className="text-danger-600">{error}</p>
+            <Button
+              className="mt-4"
+              color="primary"
+              variant="flat"
+              onPress={loadCases}
+            >
+              Try Again
+            </Button>
+          </CardBody>
+        </Card>
+      ) : cases.length === 0 ? (
         <Card className="bg-default-50">
           <CardBody className="py-12 text-center">
             <Briefcase className="mx-auto mb-4 text-default-300" size={48} />
             <p className="text-default-500">
-              No cases assigned yet. Add a case using the code above.
+              {cohorts.length === 0
+                ? "You haven't joined any cohorts yet. Use a cohort access code to join."
+                : "No cases assigned yet. Cases will appear here once your instructor assigns them to your cohort."}
             </p>
+            {user?.email && cohorts.length === 0 && (
+              <p className="text-xs text-default-400 mt-2">
+                Looking for cohorts with email: <code className="font-mono">{user.email}</code>
+              </p>
+            )}
           </CardBody>
         </Card>
       ) : (
@@ -135,38 +155,34 @@ export default function StudentCasesPage() {
               key={caseItem.id}
               isPressable
               className="hover:shadow-lg transition-shadow"
+              onPress={() => handleCaseClick(caseItem.id)}
             >
               <CardHeader className="flex gap-3 pb-0">
                 <div className="flex items-center justify-center w-10 h-10 rounded-lg bg-primary/10">
-                  <Briefcase className="text-primary" size={20} />
+                  <BookOpen className="text-primary" size={20} />
                 </div>
                 <div className="flex flex-col flex-1 min-w-0">
                   <p className="text-sm font-semibold truncate">
                     {caseItem.name}
                   </p>
-                  <p className="text-xs text-default-500 font-mono">
-                    {caseItem.code}
-                  </p>
+                  {caseItem.cohortName && (
+                    <p className="text-xs text-default-500">
+                      {caseItem.cohortName}
+                    </p>
+                  )}
                 </div>
-                <span
-                  className={`px-2 py-1 text-xs rounded-full bg-${statusConfig[caseItem.status].color}/10 text-${statusConfig[caseItem.status].color}`}
-                >
-                  {statusConfig[caseItem.status].label}
-                </span>
               </CardHeader>
               <CardBody className="pt-3">
-                <p className="text-sm text-default-600 line-clamp-2 mb-4">
-                  {caseItem.description}
+                <p className="text-sm text-default-600 line-clamp-3 mb-4">
+                  {caseItem.backgroundInfo}
                 </p>
-                <div className="flex flex-col gap-2 text-xs text-default-400">
-                  <div className="flex items-center gap-2">
-                    <User size={14} />
-                    <span>{caseItem.instructor}</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Calendar size={14} />
-                    <span>Due: {caseItem.dueDate}</span>
-                  </div>
+                <div className="flex items-center gap-2 text-xs text-default-400">
+                  {caseItem.avatars && caseItem.avatars.length > 0 && (
+                    <Chip size="sm" variant="flat">
+                      {caseItem.avatars.length} Avatar
+                      {caseItem.avatars.length !== 1 ? "s" : ""}
+                    </Chip>
+                  )}
                 </div>
               </CardBody>
             </Card>

@@ -9,11 +9,13 @@ import { Chip } from "@heroui/chip";
 import { Users, Calendar, CheckCircle, AlertCircle } from "lucide-react";
 import { addToast } from "@heroui/toast";
 import type { Cohort } from "@/types/cohort";
-import { COHORT_MODE_LABELS } from "@/types/cohort";
+import { ACCESS_MODE_LABELS } from "@/types/cohort";
+import { useAuth } from "@/lib/auth-context";
 
 export default function JoinCohortPage() {
   const params = useParams();
   const router = useRouter();
+  const { user } = useAuth();
   const accessCode = params.accessCode as string;
 
   const [loading, setLoading] = useState(true);
@@ -23,6 +25,16 @@ export default function JoinCohortPage() {
   const [email, setEmail] = useState("");
   const [name, setName] = useState("");
   const [joined, setJoined] = useState(false);
+
+  // Pre-fill email and name from logged-in user
+  useEffect(() => {
+    if (user?.email && !email) {
+      setEmail(user.email);
+    }
+    if (user?.name && !name) {
+      setName(user.name);
+    }
+  }, [user]);
 
   useEffect(() => {
     if (accessCode) {
@@ -36,10 +48,12 @@ export default function JoinCohortPage() {
       setError(null);
 
       const response = await fetch(`/api/cohort/get?accessCode=${accessCode}`);
-      
+
       if (!response.ok) {
         if (response.status === 404) {
-          setError("Cohort not found. Please check the access code and try again.");
+          setError(
+            "Cohort not found. Please check the access code and try again."
+          );
         } else {
           setError("Failed to load cohort information.");
         }
@@ -47,9 +61,11 @@ export default function JoinCohortPage() {
       }
 
       const data = await response.json();
-      
+
       if (!data.cohort) {
-        setError("Cohort not found. Please check the access code and try again.");
+        setError(
+          "Cohort not found. Please check the access code and try again."
+        );
         return;
       }
 
@@ -61,12 +77,28 @@ export default function JoinCohortPage() {
         return;
       }
 
-      // Check if cohort has ended
-      const now = new Date();
-      const endDate = new Date(cohortData.endDate);
-      if (now > endDate) {
-        setError("This cohort has ended and is no longer accepting new students.");
-        return;
+      // Check if cohort is not yet available
+      if (cohortData.availableDate) {
+        const now = new Date();
+        const availDate = new Date(cohortData.availableDate);
+        if (now < availDate) {
+          setError(
+            `This cohort is not yet available. It will be available on ${availDate.toLocaleDateString()}.`
+          );
+          return;
+        }
+      }
+
+      // Check if cohort has expired
+      if (cohortData.expirationDate) {
+        const now = new Date();
+        const expDate = new Date(cohortData.expirationDate);
+        if (now > expDate) {
+          setError(
+            "This cohort has expired and is no longer accepting new learners."
+          );
+          return;
+        }
       }
 
       setCohort(cohortData);
@@ -80,12 +112,20 @@ export default function JoinCohortPage() {
 
   const handleJoin = async () => {
     if (!email.trim()) {
-      addToast({ title: "Email required", description: "Please enter your email address", color: "danger" });
+      addToast({
+        title: "Email required",
+        description: "Please enter your email address",
+        color: "danger",
+      });
       return;
     }
 
     if (!email.includes("@")) {
-      addToast({ title: "Invalid email", description: "Please enter a valid email address", color: "danger" });
+      addToast({
+        title: "Invalid email",
+        description: "Please enter a valid email address",
+        color: "danger",
+      });
       return;
     }
 
@@ -110,7 +150,11 @@ export default function JoinCohortPage() {
       }
 
       setJoined(true);
-      addToast({ title: "Success!", description: "You have joined the cohort", color: "success" });
+      addToast({
+        title: "Success!",
+        description: "You have joined the cohort",
+        color: "success",
+      });
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Failed to join cohort";
       addToast({ title: "Error", description: msg, color: "danger" });
@@ -167,10 +211,8 @@ export default function JoinCohortPage() {
     return null;
   }
 
-  const startDate = new Date(cohort.startDate);
-  const endDate = new Date(cohort.endDate);
-  const now = new Date();
-  const isUpcoming = now < startDate;
+  const isUpcoming =
+    cohort.availableDate && new Date() < new Date(cohort.availableDate);
 
   return (
     <div className="space-y-6">
@@ -190,28 +232,40 @@ export default function JoinCohortPage() {
           )}
 
           <div className="flex flex-wrap justify-center gap-2">
-            <Chip size="sm" variant="flat" color={isUpcoming ? "warning" : "success"}>
+            <Chip
+              size="sm"
+              variant="flat"
+              color={isUpcoming ? "warning" : "success"}
+            >
               {isUpcoming ? "Starts Soon" : "Active"}
             </Chip>
             <Chip size="sm" variant="bordered">
-              {COHORT_MODE_LABELS[cohort.cohortMode]}
+              {cohort.accessMode === "anyone" ? "Open Access" : "Restricted"}
             </Chip>
-            {cohort.caseName && (
-              <Chip size="sm" variant="flat" color="secondary">
-                {cohort.caseName}
-              </Chip>
-            )}
           </div>
 
-          <div className="flex items-center justify-center gap-2 text-sm text-default-500">
-            <Calendar className="w-4 h-4" />
-            <span>
-              {startDate.toLocaleDateString()} - {endDate.toLocaleDateString()}
-            </span>
-          </div>
+          {(cohort.availableDate || cohort.expirationDate) && (
+            <div className="flex items-center justify-center gap-2 text-sm text-default-500">
+              <Calendar className="w-4 h-4" />
+              <span>
+                {cohort.availableDate
+                  ? new Date(cohort.availableDate).toLocaleDateString()
+                  : "Now"}{" "}
+                -{" "}
+                {cohort.expirationDate
+                  ? new Date(cohort.expirationDate).toLocaleDateString()
+                  : "No expiration"}
+              </span>
+            </div>
+          )}
 
           <div className="border-t pt-4 space-y-4">
             <h3 className="font-semibold text-center">Join this Cohort</h3>
+            {user?.email && (
+              <p className="text-xs text-center text-default-500 bg-default-100 p-2 rounded">
+                You&apos;re logged in as <strong>{user.email}</strong>. This email will be used to join the cohort.
+              </p>
+            )}
             <Input
               type="email"
               label="Email Address"
@@ -219,6 +273,8 @@ export default function JoinCohortPage() {
               value={email}
               onValueChange={setEmail}
               isRequired
+              isDisabled={!!user?.email}
+              description={user?.email ? "Using your account email" : undefined}
             />
             <Input
               label="Your Name (optional)"

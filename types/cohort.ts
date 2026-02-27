@@ -2,7 +2,7 @@
  * Cohort Types for Professor-side Cohort Management
  */
 
-export type CohortMode = "practice" | "graded" | "competitive" | "simulation";
+export type AccessMode = "anyone" | "specific";
 
 export interface CohortStudent {
   email: string;
@@ -15,16 +15,14 @@ export interface Cohort {
   id: string;
   name: string;
   description?: string;
-  caseId?: string;
-  caseName?: string;
   professorId: string;
   professorName?: string;
   accessCode: string;
-  maxDays: number;
-  startDate: string;
-  endDate: string;
+  accessMode: AccessMode;
+  availableDate: string | null; // null means "Now" (immediately available)
+  expirationDate: string | null; // null means "Never" (no expiration)
+  assignedCaseIds: string[];  // Cases assigned to this cohort (following Alfred's pattern)
   students: CohortStudent[];
-  cohortMode: CohortMode;
   createdAt: string;
   updatedAt: string;
   isActive: boolean;
@@ -33,27 +31,23 @@ export interface Cohort {
 export interface CohortCreateInput {
   name: string;
   description?: string;
-  caseId?: string;
-  caseName?: string;
   professorId: string;
   professorName?: string;
-  maxDays: number;
-  startDate: string;
-  endDate: string;
+  accessMode: AccessMode;
+  availableDate: string | null;
+  expirationDate: string | null;
+  assignedCaseIds?: string[];
   students: CohortStudent[];
-  cohortMode: CohortMode;
 }
 
 export interface CohortUpdateInput {
   name?: string;
   description?: string;
-  caseId?: string;
-  caseName?: string;
-  maxDays?: number;
-  startDate?: string;
-  endDate?: string;
+  accessMode?: AccessMode;
+  availableDate?: string | null;
+  expirationDate?: string | null;
+  assignedCaseIds?: string[];
   students?: CohortStudent[];
-  cohortMode?: CohortMode;
   isActive?: boolean;
 }
 
@@ -63,16 +57,7 @@ export interface CachedCohort extends Cohort {
   isDirty: boolean;
 }
 
-export const COHORT_MODE_LABELS: Record<CohortMode, string> = {
-  practice: "Practice Mode",
-  graded: "Graded Mode",
-  competitive: "Competitive Mode",
-  simulation: "Simulation Mode",
-};
-
-export const COHORT_MODE_DESCRIPTIONS: Record<CohortMode, string> = {
-  practice: "Students can practice without grades. Unlimited attempts allowed.",
-  graded: "Student interactions are graded. Limited attempts based on budget.",
-  competitive: "Students compete against each other. Leaderboard enabled.",
-  simulation: "Full simulation mode with realistic scenarios and time pressure.",
+export const ACCESS_MODE_LABELS: Record<AccessMode, string> = {
+  anyone: "Anyone with the access code can join",
+  specific: "Allow access only to specific learners",
 };

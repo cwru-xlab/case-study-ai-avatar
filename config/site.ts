@@ -30,6 +30,11 @@ export const siteConfig = {
       icon: "Video",
     },
     {
+      label: "Cohort Management",
+      href: "/cohort-management",
+      icon: "GraduationCap",
+    },
+    {
       label: "Users and Usages",
       href: "/users-and-usages",
       icon: "ChartColumnBig",

@@ -17,10 +17,7 @@ export async function POST(request: NextRequest) {
     const cohort = await s3Storage.getCohortByAccessCode(accessCode);
 
     if (!cohort) {
-      return NextResponse.json(
-        { error: "Cohort not found" },
-        { status: 404 }
-      );
+      return NextResponse.json({ error: "Cohort not found" }, { status: 404 });
     }
 
     // Check if cohort is active
@@ -31,18 +28,51 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Check if cohort has ended
-    const now = new Date();
-    const endDate = new Date(cohort.endDate);
-    if (now > endDate) {
-      return NextResponse.json(
-        { error: "This cohort has ended" },
-        { status: 400 }
+    // Check if cohort is not yet available
+    if (cohort.availableDate) {
+      const now = new Date();
+      const availDate = new Date(cohort.availableDate);
+      if (now < availDate) {
+        return NextResponse.json(
+          { error: "This cohort is not yet available" },
+          { status: 400 }
+        );
+      }
+    }
+
+    // Check if cohort has expired
+    if (cohort.expirationDate) {
+      const now = new Date();
+      const expDate = new Date(cohort.expirationDate);
+      if (now > expDate) {
+        return NextResponse.json(
+          { error: "This cohort has expired" },
+          { status: 400 }
+        );
+      }
+    }
+
+    // Check access mode
+    const normalizedEmail = email.trim().toLowerCase();
+
+    if (cohort.accessMode === "specific") {
+      // Check if email is in the allowed list
+      const isAllowed = cohort.students?.some(
+        (s) => s.email.toLowerCase() === normalizedEmail
       );
+
+      if (!isAllowed) {
+        return NextResponse.json(
+          {
+            error:
+              "Your email is not authorized to join this cohort. Please contact your instructor.",
+          },
+          { status: 403 }
+        );
+      }
     }
 
     // Check if student already exists
-    const normalizedEmail = email.trim().toLowerCase();
     const existingStudent = cohort.students?.find(
       (s) => s.email.toLowerCase() === normalizedEmail
     );
@@ -55,7 +85,7 @@ export async function POST(request: NextRequest) {
         if (name) existingStudent.name = name;
       }
     } else {
-      // Add new student
+      // Add new student (only for "anyone" access mode)
       cohort.students = cohort.students || [];
       cohort.students.push({
         email: normalizedEmail,
