@@ -1,0 +1,67 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Student {
+  id          String   @id @default(uuid())
+  email       String   @unique
+  displayName String?
+  createdAt   DateTime @default(now())
+
+  assignments CaseAssignment[]
+  attempts    Attempt[]
+}
+
+model Cohort {
+  id        String   @id @default(uuid())
+  name      String
+  term      String?
+  createdAt DateTime @default(now())
+
+  assignments CaseAssignment[]
+}
+
+model Case {
+  id          String   @id @default(uuid())
+  slug        String   @unique
+  title       String
+  isPublished Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  assignments CaseAssignment[]
+  attempts    Attempt[]
+}
+
+model CaseAssignment {
+  id        String   @id @default(uuid())
+  studentId String
+  caseId    String
+  cohortId  String?
+  assignedAt DateTime @default(now())
+
+  student Student @relation(fields: [studentId], references: [id])
+  case    Case    @relation(fields: [caseId], references: [id])
+  cohort  Cohort? @relation(fields: [cohortId], references: [id])
+
+  @@unique([studentId, caseId])
+}
+
+model Attempt {
+  id            String   @id @default(uuid())
+  studentId     String
+  caseId        String
+  attemptNumber Int
+  score         Int?
+  submittedAt   DateTime?
+  createdAt     DateTime @default(now())
+
+  student Student @relation(fields: [studentId], references: [id])
+  case    Case    @relation(fields: [caseId], references: [id])
+
+  @@unique([studentId, caseId, attemptNumber])
+}
