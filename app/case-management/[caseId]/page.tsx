@@ -21,8 +21,8 @@ import { addToast } from "@heroui/toast";
 import { title as pageTitle } from "@/components/primitives";
 import { useAuth } from "@/lib/auth-context";
 import { caseStorage } from "@/lib/case-storage";
-import { avatarStorage, type CachedAvatar } from "@/lib/avatar-storage";
-import type { CaseStudy, CaseAvatar, LearningObjective, CaseDifficulty, CaseStatus } from "@/types";
+import { videoAudioProfileStorage } from "@/lib/video-audio-profile-storage";
+import type { CaseStudy, CaseAvatar, LearningObjective, CaseDifficulty, CaseStatus, CachedVideoAudioProfile } from "@/types";
 
 export default function CaseDetailPage() {
   const params = useParams();
@@ -38,10 +38,10 @@ export default function CaseDetailPage() {
   const [backgroundInfo, setBackgroundInfo] = useState("");
   const [avatars, setAvatars] = useState<CaseAvatar[]>([]);
   
-  // Available avatars from the system
-  const [availableAvatars, setAvailableAvatars] = useState<CachedAvatar[]>([]);
+  // Available avatar profiles from the system
+  const [availableProfiles, setAvailableProfiles] = useState<CachedVideoAudioProfile[]>([]);
   const [avatarSearchQuery, setAvatarSearchQuery] = useState("");
-  const [loadingAvatars, setLoadingAvatars] = useState(false);
+  const [loadingProfiles, setLoadingProfiles] = useState(false);
   
   // New state for enhanced case authoring
   const [learningObjectives, setLearningObjectives] = useState<LearningObjective[]>([]);
@@ -131,33 +131,33 @@ export default function CaseDetailPage() {
     loadCase();
   }, [caseId, isNewCase]);
 
-  // Load available avatars from the system
+  // Load available avatar profiles from the system
   useEffect(() => {
-    const loadAvailableAvatars = async () => {
-      setLoadingAvatars(true);
+    const loadAvailableProfiles = async () => {
+      setLoadingProfiles(true);
       try {
-        const allAvatars = await avatarStorage.list();
-        setAvailableAvatars(allAvatars);
+        const allProfiles = await videoAudioProfileStorage.list();
+        setAvailableProfiles(allProfiles);
       } catch (error) {
-        console.error("Failed to load avatars:", error);
+        console.error("Failed to load avatar profiles:", error);
       } finally {
-        setLoadingAvatars(false);
+        setLoadingProfiles(false);
       }
     };
-    loadAvailableAvatars();
+    loadAvailableProfiles();
   }, []);
 
-  // Filter avatars based on search and exclude already added ones
-  const filteredAvailableAvatars = useMemo(() => {
+  // Filter avatar profiles based on search and exclude already added ones
+  const filteredAvailableProfiles = useMemo(() => {
     const addedAvatarIds = avatars.map(a => a.id);
-    return availableAvatars.filter(avatar => {
+    return availableProfiles.filter(profile => {
       const matchesSearch = avatarSearchQuery === "" || 
-        avatar.name.toLowerCase().includes(avatarSearchQuery.toLowerCase()) ||
-        (avatar.title?.toLowerCase().includes(avatarSearchQuery.toLowerCase()));
-      const notAlreadyAdded = !addedAvatarIds.includes(avatar.id);
+        profile.name.toLowerCase().includes(avatarSearchQuery.toLowerCase()) ||
+        (profile.description?.toLowerCase().includes(avatarSearchQuery.toLowerCase()));
+      const notAlreadyAdded = !addedAvatarIds.includes(profile.id);
       return matchesSearch && notAlreadyAdded;
     });
-  }, [availableAvatars, avatars, avatarSearchQuery]);
+  }, [availableProfiles, avatars, avatarSearchQuery]);
 
   const validateForm = () => {
     const newErrors: Record<string, string> = {};
@@ -263,11 +263,11 @@ export default function CaseDetailPage() {
     router.push("/case-management");
   };
 
-  const handleAddAvatarFromSystem = (systemAvatar: CachedAvatar) => {
+  const handleAddAvatarFromSystem = (profile: CachedVideoAudioProfile) => {
     const newCaseAvatar: CaseAvatar = {
-      id: systemAvatar.id,
-      name: systemAvatar.name,
-      role: systemAvatar.title || "",
+      id: profile.id,
+      name: profile.name,
+      role: profile.description || "",
       additionalInfo: "",
     };
     setAvatars([...avatars, newCaseAvatar]);
@@ -561,7 +561,7 @@ Example:
               <div>
                 <h3 className="text-lg font-semibold">Case Avatars</h3>
                 <p className="text-sm text-default-500">
-                  Select avatars from your existing avatars to associate with this case
+                  Select avatar profiles to associate with this case
                 </p>
               </div>
               <Button
@@ -580,7 +580,7 @@ Example:
                 <User className="w-8 h-8 mx-auto mb-2 opacity-50" />
                 <p>No avatars associated with this case</p>
                 <p className="text-sm">
-                  Click &quot;Add Avatar&quot; to select from existing avatars
+                  Click &quot;Add Avatar&quot; to select from avatar profiles
                 </p>
               </div>
             )}
@@ -805,64 +805,61 @@ Example:
           {(onClose) => (
             <>
               <ModalHeader className="flex flex-col gap-1">
-                <h3 className="text-lg font-semibold">Select Avatar</h3>
+                <h3 className="text-lg font-semibold">Select Avatar Profile</h3>
                 <p className="text-sm text-default-500">
-                  Choose an avatar from your existing avatars to add to this case
+                  Choose an avatar profile to add to this case
                 </p>
               </ModalHeader>
               <ModalBody>
                 <Input
-                  placeholder="Search avatars by name or title..."
+                  placeholder="Search avatar profiles by name or description..."
                   startContent={<Search className="w-4 h-4 text-default-400" />}
                   value={avatarSearchQuery}
                   onValueChange={setAvatarSearchQuery}
                   className="mb-4"
                 />
                 
-                {loadingAvatars && (
+                {loadingProfiles && (
                   <div className="text-center py-8">
-                    <p className="text-default-500">Loading avatars...</p>
+                    <p className="text-default-500">Loading avatar profiles...</p>
                   </div>
                 )}
 
-                {!loadingAvatars && filteredAvailableAvatars.length === 0 && (
+                {!loadingProfiles && filteredAvailableProfiles.length === 0 && (
                   <div className="text-center py-8 text-default-400">
                     <User className="w-8 h-8 mx-auto mb-2 opacity-50" />
                     {avatarSearchQuery ? (
-                      <p>No avatars found matching &quot;{avatarSearchQuery}&quot;</p>
-                    ) : availableAvatars.length === avatars.length ? (
-                      <p>All available avatars have been added to this case</p>
+                      <p>No avatar profiles found matching &quot;{avatarSearchQuery}&quot;</p>
+                    ) : availableProfiles.length === avatars.length ? (
+                      <p>All available avatar profiles have been added to this case</p>
                     ) : (
-                      <p>No avatars available. Create avatars in Avatar Management first.</p>
+                      <p>No avatar profiles available. Create profiles in Avatar Profiles first.</p>
                     )}
                   </div>
                 )}
 
                 <div className="space-y-2">
-                  {filteredAvailableAvatars.map((avatar) => (
+                  {filteredAvailableProfiles.map((profile) => (
                     <Card 
-                      key={avatar.id} 
+                      key={profile.id} 
                       className="p-3 cursor-pointer hover:bg-default-100 transition-colors"
                       isPressable
-                      onPress={() => handleAddAvatarFromSystem(avatar)}
+                      onPress={() => handleAddAvatarFromSystem(profile)}
                     >
                       <div className="flex items-center gap-3">
                         <div className="w-12 h-12 bg-primary-100 rounded-full flex items-center justify-center">
                           <User className="w-6 h-6 text-primary" />
                         </div>
                         <div className="flex-1">
-                          <p className="font-semibold">{avatar.name}</p>
-                          <p className="text-sm text-default-500">{avatar.title || "No title"}</p>
+                          <p className="font-semibold">{profile.name}</p>
+                          <p className="text-sm text-default-500">{profile.description || "No description"}</p>
                         </div>
                         <div className="flex items-center gap-2">
-                          {avatar.published && (
-                            <Chip size="sm" color="success" variant="flat">Published</Chip>
-                          )}
                           <Button
                             size="sm"
                             color="primary"
                             variant="flat"
-                            onPress={() => handleAddAvatarFromSystem(avatar)}
+                            onPress={() => handleAddAvatarFromSystem(profile)}
                           >
                             Add
                           </Button>

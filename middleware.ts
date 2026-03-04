@@ -80,7 +80,6 @@ const PUBLIC_ROUTES = [
  *
  * Page Routes (Admin Dashboard):
  * - /system-settings: System configuration and management
- * - /avatar-management: Avatar creation, editing, and management
  * - /users-and-usages: User management and usage analytics
  * - /kiosk: Kiosk mode interface and controls
  *
@@ -111,7 +110,6 @@ const PUBLIC_ROUTES = [
 const ADMIN_ROUTES = [
   "/system-settings",
   "/case-management",
-  "/avatar-management",
   "/users-and-usages",
   "/kiosk/main-display",
   "/kiosk/touch-screen",

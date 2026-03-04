@@ -20,11 +20,6 @@ export const siteConfig = {
       icon: "Briefcase",
     },
     {
-      label: "Avatar Management",
-      href: "/avatar-management",
-      icon: "Users",
-    },
-    {
       label: "Avatar Profiles",
       href: "/avatar-profiles",
       icon: "Video",
