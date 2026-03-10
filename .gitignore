@@ -41,3 +41,5 @@ CLAUDE.md
 requirements/
 
 requirements/cookies.txt
+
+/lib/generated/prisma

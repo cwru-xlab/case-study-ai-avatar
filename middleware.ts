@@ -157,9 +157,14 @@ const ADMIN_ROUTES = [
   "/api/case/list",
   // Student History routes
   "/student-history",
+<<<<<<< HEAD
   // Cohort management
   "/cohort-management",
   "/api/cohort",
+=======
+  // Teacher Class Overview routes
+  "/teacher",
+>>>>>>> origin/main
 ];
 
 /**

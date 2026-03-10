@@ -1,13 +1,18 @@
 /**
- * Student History Service - Mock Data Layer
+ * Student History Service - PostgreSQL Data Layer
  *
- * This service provides mock data for the Student History feature.
- * It is designed to be easily replaced with PostgreSQL queries in the future.
- *
- * TODO: Replace mock data with actual PostgreSQL queries when database is ready.
- * TODO: Add proper error handling and validation.
- * TODO: Implement caching strategy for frequently accessed data.
+ * This service provides data access for the Student History feature
+ * using Prisma queries against PostgreSQL.
  */
+
+import { prisma } from "./prisma";
+import type {
+  Cohort as PrismaCohort,
+  Student as PrismaStudent,
+  Case as PrismaCase,
+  Attempt as PrismaAttempt,
+  CaseAssignment,
+} from "@prisma/client";
 
 // ============================================================================
 // TYPE DEFINITIONS
@@ -105,144 +110,84 @@ export const TIME_RANGE_OPTIONS: Array<{
 ];
 
 // ============================================================================
-// MOCK DATA
+// TYPE MAPPERS
 // ============================================================================
 
-const MOCK_SECTIONS: CourseSection[] = [
-  {
-    id: "sec-001",
-    name: "Business Strategy - Section A",
-    code: "MGMT 401-A",
-    semester: "Fall",
-    year: 2025,
-  },
-  {
-    id: "sec-002",
-    name: "Business Strategy - Section B",
-    code: "MGMT 401-B",
-    semester: "Fall",
-    year: 2025,
-  },
-  {
-    id: "sec-003",
-    name: "Marketing Analytics",
-    code: "MKTG 350",
-    semester: "Fall",
-    year: 2025,
-  },
-  {
-    id: "sec-004",
-    name: "Financial Management",
-    code: "FNCE 301",
-    semester: "Spring",
-    year: 2025,
-  },
-  {
-    id: "sec-005",
-    name: "Operations Management",
-    code: "OPMT 310",
-    semester: "Spring",
-    year: 2025,
-  },
-];
+function cohortToCourseSection(cohort: PrismaCohort): CourseSection {
+  return {
+    id: cohort.id,
+    name: cohort.name,
+    code: cohort.code || cohort.name,
+    semester: cohort.semester || "Unknown",
+    year: cohort.year || new Date().getFullYear(),
+  };
+}
 
-const MOCK_STUDENTS: Student[] = [
-  {
-    id: "stu-001",
-    name: "Alice Johnson",
-    email: "alice.johnson@case.edu",
-    studentNumber: "ABC12345",
-    sectionIds: ["sec-001", "sec-003"],
-  },
-  {
-    id: "stu-002",
-    name: "Bob Smith",
-    email: "bob.smith@case.edu",
-    studentNumber: "ABC12346",
-    sectionIds: ["sec-001", "sec-004"],
-  },
-  {
-    id: "stu-003",
-    name: "Carol Williams",
-    email: "carol.williams@case.edu",
-    studentNumber: "ABC12347",
-    sectionIds: ["sec-002", "sec-003"],
-  },
-  {
-    id: "stu-004",
-    name: "David Brown",
-    email: "david.brown@case.edu",
-    studentNumber: "ABC12348",
-    sectionIds: ["sec-002", "sec-005"],
-  },
-  {
-    id: "stu-005",
-    name: "Emma Davis",
-    email: "emma.davis@case.edu",
-    studentNumber: "ABC12349",
-    sectionIds: ["sec-001", "sec-002", "sec-003"],
-  },
-  {
-    id: "stu-006",
-    name: "Frank Miller",
-    email: "frank.miller@case.edu",
-    studentNumber: "ABC12350",
-    sectionIds: ["sec-004", "sec-005"],
-  },
-  {
-    id: "stu-007",
-    name: "Grace Wilson",
-    email: "grace.wilson@case.edu",
-    studentNumber: "ABC12351",
-    sectionIds: ["sec-001", "sec-005"],
-  },
-  {
-    id: "stu-008",
-    name: "Henry Taylor",
-    email: "henry.taylor@case.edu",
-    studentNumber: "ABC12352",
-    sectionIds: ["sec-002", "sec-004"],
-  },
-];
+function prismaStudentToStudent(
+  s: PrismaStudent & { assignments: CaseAssignment[] }
+): Student {
+  return {
+    id: s.id,
+    name: s.displayName || s.email.split("@")[0],
+    email: s.email,
+    studentNumber: s.studentNumber || s.email.split("@")[0],
+    sectionIds: s.assignments
+      .map((a) => a.cohortId)
+      .filter((id): id is string => id !== null),
+  };
+}
 
-const MOCK_CASES: Case[] = [
-  {
-    id: "case-001",
-    name: "Market Entry Strategy",
-    description: "Analyze market entry options for a tech startup",
-    sectionIds: ["sec-001", "sec-002"],
-  },
-  {
-    id: "case-002",
-    name: "Supply Chain Optimization",
-    description: "Optimize supply chain for a manufacturing company",
-    sectionIds: ["sec-001", "sec-005"],
-  },
-  {
-    id: "case-003",
-    name: "Customer Segmentation Analysis",
-    description: "Develop customer segments for targeted marketing",
-    sectionIds: ["sec-003"],
-  },
-  {
-    id: "case-004",
-    name: "Investment Portfolio Review",
-    description: "Review and optimize investment portfolio allocation",
-    sectionIds: ["sec-004"],
-  },
-  {
-    id: "case-005",
-    name: "Digital Transformation",
-    description: "Plan digital transformation for a traditional retailer",
-    sectionIds: ["sec-001", "sec-002", "sec-003"],
-  },
-  {
-    id: "case-006",
-    name: "Merger & Acquisition Analysis",
-    description: "Evaluate potential M&A targets",
-    sectionIds: ["sec-004", "sec-005"],
-  },
-];
+function prismaCaseToCase(
+  c: PrismaCase & { assignments: CaseAssignment[] }
+): Case {
+  return {
+    id: c.id,
+    name: c.title,
+    description: c.description || "",
+    sectionIds: c.assignments
+      .map((a) => a.cohortId)
+      .filter((id): id is string => id !== null),
+  };
+}
+
+function prismaAttemptToStudentAttempt(a: PrismaAttempt): StudentAttempt {
+  return {
+    attemptNumber: a.attemptNumber,
+    startedAt: a.createdAt.toISOString(),
+    completedAt: a.submittedAt?.toISOString() || null,
+    score: a.score,
+    totalMessages: a.totalMessages || 0,
+    totalTimeSeconds: a.totalTimeSeconds || 0,
+  };
+}
+
+function getTimeRangeDate(timeRange: TimeRangeOption): Date {
+  const now = new Date();
+  switch (timeRange) {
+    case "last_7_days":
+      return new Date(now.setDate(now.getDate() - 7));
+    case "last_30_days":
+      return new Date(now.setDate(now.getDate() - 30));
+    case "last_3_months":
+      return new Date(now.setMonth(now.getMonth() - 3));
+    case "last_6_months":
+      return new Date(now.setMonth(now.getMonth() - 6));
+    default:
+      return new Date(now.setDate(now.getDate() - 30));
+  }
+}
+
+function calculateTrend(
+  scores: number[]
+): "improving" | "stable" | "declining" {
+  if (scores.length < 2) return "stable";
+  const first = scores[0];
+  const last = scores[scores.length - 1];
+  const diff = last - first;
+  if (diff > 5) return "improving";
+  if (diff < -5) return "declining";
+  return "stable";
+}
 
 // ============================================================================
 // SERVICE FUNCTIONS
@@ -250,131 +195,177 @@ const MOCK_CASES: Case[] = [
 
 /**
  * Get all course sections
- * TODO: Replace with PostgreSQL query
  */
 export async function getAllSections(): Promise<CourseSection[]> {
-  // Simulate network delay
-  await new Promise((resolve) => setTimeout(resolve, 100));
-  return MOCK_SECTIONS;
+  const cohorts = await prisma.cohort.findMany({
+    orderBy: { createdAt: "desc" },
+  });
+  return cohorts.map(cohortToCourseSection);
 }
 
 /**
  * Search sections by query string
- * TODO: Replace with PostgreSQL full-text search
  */
 export async function searchSections(query: string): Promise<CourseSection[]> {
-  await new Promise((resolve) => setTimeout(resolve, 50));
-  const lowerQuery = query.toLowerCase();
-  return MOCK_SECTIONS.filter(
-    (section) =>
-      section.name.toLowerCase().includes(lowerQuery) ||
-      section.code.toLowerCase().includes(lowerQuery)
-  );
+  const cohorts = await prisma.cohort.findMany({
+    where: {
+      OR: [
+        { name: { contains: query, mode: "insensitive" } },
+        { code: { contains: query, mode: "insensitive" } },
+      ],
+    },
+    orderBy: { createdAt: "desc" },
+  });
+  return cohorts.map(cohortToCourseSection);
 }
 
 /**
  * Get students by section ID
- * TODO: Replace with PostgreSQL query with JOIN
  */
 export async function getStudentsBySection(
   sectionId: string
 ): Promise<Student[]> {
-  await new Promise((resolve) => setTimeout(resolve, 50));
-  return MOCK_STUDENTS.filter((student) =>
-    student.sectionIds.includes(sectionId)
-  );
+  const students = await prisma.student.findMany({
+    where: {
+      assignments: {
+        some: { cohortId: sectionId },
+      },
+    },
+    include: {
+      assignments: true,
+    },
+    orderBy: { displayName: "asc" },
+  });
+  return students.map(prismaStudentToStudent);
 }
 
 /**
  * Search students by query string, optionally filtered by section
- * TODO: Replace with PostgreSQL full-text search
  */
 export async function searchStudents(
   query: string,
   sectionId?: string
 ): Promise<Student[]> {
-  await new Promise((resolve) => setTimeout(resolve, 50));
-  const lowerQuery = query.toLowerCase();
-
-  let students = MOCK_STUDENTS;
-  if (sectionId) {
-    students = students.filter((s) => s.sectionIds.includes(sectionId));
-  }
-
-  return students.filter(
-    (student) =>
-      student.name.toLowerCase().includes(lowerQuery) ||
-      student.email.toLowerCase().includes(lowerQuery) ||
-      student.studentNumber.toLowerCase().includes(lowerQuery)
-  );
+  const students = await prisma.student.findMany({
+    where: {
+      AND: [
+        sectionId
+          ? {
+              assignments: {
+                some: { cohortId: sectionId },
+              },
+            }
+          : {},
+        {
+          OR: [
+            { displayName: { contains: query, mode: "insensitive" } },
+            { email: { contains: query, mode: "insensitive" } },
+            { studentNumber: { contains: query, mode: "insensitive" } },
+          ],
+        },
+      ],
+    },
+    include: {
+      assignments: true,
+    },
+    orderBy: { displayName: "asc" },
+  });
+  return students.map(prismaStudentToStudent);
 }
 
 /**
  * Get cases by section ID
- * TODO: Replace with PostgreSQL query with JOIN
  */
 export async function getCasesBySection(sectionId: string): Promise<Case[]> {
-  await new Promise((resolve) => setTimeout(resolve, 50));
-  return MOCK_CASES.filter((c) => c.sectionIds.includes(sectionId));
+  const cases = await prisma.case.findMany({
+    where: {
+      assignments: {
+        some: { cohortId: sectionId },
+      },
+    },
+    include: {
+      assignments: true,
+    },
+    orderBy: { title: "asc" },
+  });
+  return cases.map(prismaCaseToCase);
 }
 
 /**
  * Search cases by query string, optionally filtered by section
- * TODO: Replace with PostgreSQL full-text search
  */
 export async function searchCases(
   query: string,
   sectionId?: string
 ): Promise<Case[]> {
-  await new Promise((resolve) => setTimeout(resolve, 50));
-  const lowerQuery = query.toLowerCase();
-
-  let cases = MOCK_CASES;
-  if (sectionId) {
-    cases = cases.filter((c) => c.sectionIds.includes(sectionId));
-  }
-
-  return cases.filter(
-    (c) =>
-      c.name.toLowerCase().includes(lowerQuery) ||
-      c.description.toLowerCase().includes(lowerQuery)
-  );
+  const cases = await prisma.case.findMany({
+    where: {
+      AND: [
+        sectionId
+          ? {
+              assignments: {
+                some: { cohortId: sectionId },
+              },
+            }
+          : {},
+        {
+          OR: [
+            { title: { contains: query, mode: "insensitive" } },
+            { description: { contains: query, mode: "insensitive" } },
+          ],
+        },
+      ],
+    },
+    include: {
+      assignments: true,
+    },
+    orderBy: { title: "asc" },
+  });
+  return cases.map(prismaCaseToCase);
 }
 
 /**
  * Get section by ID
- * TODO: Replace with PostgreSQL query
  */
 export async function getSectionById(
   sectionId: string
 ): Promise<CourseSection | null> {
-  await new Promise((resolve) => setTimeout(resolve, 50));
-  return MOCK_SECTIONS.find((s) => s.id === sectionId) || null;
+  const cohort = await prisma.cohort.findUnique({
+    where: { id: sectionId },
+  });
+  return cohort ? cohortToCourseSection(cohort) : null;
 }
 
 /**
  * Get student by ID
- * TODO: Replace with PostgreSQL query
  */
 export async function getStudentById(
   studentId: string
 ): Promise<Student | null> {
-  await new Promise((resolve) => setTimeout(resolve, 50));
-  return MOCK_STUDENTS.find((s) => s.id === studentId) || null;
+  const student = await prisma.student.findUnique({
+    where: { id: studentId },
+    include: {
+      assignments: true,
+    },
+  });
+  return student ? prismaStudentToStudent(student) : null;
 }
 
 /**
  * Get case by ID
- * TODO: Replace with PostgreSQL query
  */
 export async function getCaseById(caseId: string): Promise<Case | null> {
-  await new Promise((resolve) => setTimeout(resolve, 50));
-  return MOCK_CASES.find((c) => c.id === caseId) || null;
+  const caseData = await prisma.case.findUnique({
+    where: { id: caseId },
+    include: {
+      assignments: true,
+    },
+  });
+  return caseData ? prismaCaseToCase(caseData) : null;
 }
 
 /**
  * Get detailed student history for a specific student/section/case combination
- * TODO: Replace with PostgreSQL queries aggregating from chat sessions, scores, etc.
  */
 export async function getStudentHistoryDetail(
   sectionId: string,
@@ -382,86 +373,103 @@ export async function getStudentHistoryDetail(
   caseId: string,
   timeRange: TimeRangeOption
 ): Promise<StudentHistoryDetail | null> {
-  await new Promise((resolve) => setTimeout(resolve, 150));
+  const [cohort, student, caseData, attempts] = await Promise.all([
+    prisma.cohort.findUnique({ where: { id: sectionId } }),
+    prisma.student.findUnique({
+      where: { id: studentId },
+      include: { assignments: true },
+    }),
+    prisma.case.findUnique({
+      where: { id: caseId },
+      include: { assignments: true },
+    }),
+    prisma.attempt.findMany({
+      where: {
+        studentId,
+        caseId,
+        createdAt: { gte: getTimeRangeDate(timeRange) },
+      },
+      orderBy: { attemptNumber: "asc" },
+    }),
+  ]);
 
-  const section = MOCK_SECTIONS.find((s) => s.id === sectionId);
-  const student = MOCK_STUDENTS.find((s) => s.id === studentId);
-  const caseData = MOCK_CASES.find((c) => c.id === caseId);
-
-  if (!section || !student || !caseData) {
+  if (!cohort || !student || !caseData) {
     return null;
   }
 
-  // Generate mock attempts data
-  const mockAttempts: StudentAttempt[] = [
-    {
-      attemptNumber: 1,
-      startedAt: "2025-01-15T10:30:00Z",
-      completedAt: "2025-01-15T11:15:00Z",
-      score: 65,
-      totalMessages: 24,
-      totalTimeSeconds: 2700,
-    },
-    {
-      attemptNumber: 2,
-      startedAt: "2025-01-22T14:00:00Z",
-      completedAt: "2025-01-22T14:45:00Z",
-      score: 78,
-      totalMessages: 31,
-      totalTimeSeconds: 2700,
-    },
-    {
-      attemptNumber: 3,
-      startedAt: "2025-02-01T09:00:00Z",
-      completedAt: "2025-02-01T09:50:00Z",
-      score: 85,
-      totalMessages: 28,
-      totalTimeSeconds: 3000,
-    },
-  ];
+  const section = cohortToCourseSection(cohort);
+  const studentMapped = prismaStudentToStudent(student);
+  const caseMapped = prismaCaseToCase(caseData);
+  const attemptsMapped = attempts.map(prismaAttemptToStudentAttempt);
+
+  const scores = attempts
+    .map((a) => a.score)
+    .filter((s): s is number => s !== null);
+  const totalTimeSeconds = attempts.reduce(
+    (sum, a) => sum + (a.totalTimeSeconds || 0),
+    0
+  );
+  const totalMessages = attempts.reduce(
+    (sum, a) => sum + (a.totalMessages || 0),
+    0
+  );
+
+  const lastAttempt = attempts[attempts.length - 1];
+  const lastActiveDate = lastAttempt
+    ? (lastAttempt.submittedAt || lastAttempt.createdAt)
+        .toISOString()
+        .split("T")[0]
+    : new Date().toISOString().split("T")[0];
 
   const timeRangeLabel =
     TIME_RANGE_OPTIONS.find((t) => t.value === timeRange)?.label || timeRange;
 
+  const learningCurveAttempts = attempts
+    .filter((a) => a.score !== null)
+    .map((a) => ({
+      attemptNumber: a.attemptNumber,
+      score: a.score!,
+      date: a.createdAt.toISOString().split("T")[0],
+    }));
+
   return {
-    student,
+    student: studentMapped,
     section,
-    case: caseData,
+    case: caseMapped,
     timeRange: timeRangeLabel,
-    attempts: mockAttempts,
+    attempts: attemptsMapped,
     timeUsage: {
-      totalTimeMinutes: 140,
-      numberOfSessions: 3,
-      avgSessionLengthMinutes: 47,
-      lastActiveDate: "2025-02-01",
+      totalTimeMinutes: Math.round(totalTimeSeconds / 60),
+      numberOfSessions: attempts.length,
+      avgSessionLengthMinutes:
+        attempts.length > 0
+          ? Math.round(totalTimeSeconds / 60 / attempts.length)
+          : 0,
+      lastActiveDate,
     },
     conversations: {
-      totalMessages: 83,
-      totalSessions: 3,
-      lastConversationDate: "2025-02-01",
-      avgMessagesPerSession: 28,
+      totalMessages,
+      totalSessions: attempts.length,
+      lastConversationDate: lastActiveDate,
+      avgMessagesPerSession:
+        attempts.length > 0 ? Math.round(totalMessages / attempts.length) : 0,
     },
     score: {
-      currentScore: 85,
-      bestScore: 85,
-      numberOfAttempts: 3,
+      currentScore: scores.length > 0 ? scores[scores.length - 1] : null,
+      bestScore: scores.length > 0 ? Math.max(...scores) : null,
+      numberOfAttempts: attempts.length,
       passingScore: 70,
-      isPassing: true,
+      isPassing: scores.length > 0 && Math.max(...scores) >= 70,
     },
     learningCurve: {
-      attempts: [
-        { attemptNumber: 1, score: 65, date: "2025-01-15" },
-        { attemptNumber: 2, score: 78, date: "2025-01-22" },
-        { attemptNumber: 3, score: 85, date: "2025-02-01" },
-      ],
-      trend: "improving",
+      attempts: learningCurveAttempts,
+      trend: calculateTrend(scores),
     },
   };
 }
 
 /**
  * Get time usage details for a specific attempt
- * TODO: Replace with PostgreSQL query
  */
 export async function getTimeUsageDetails(
   sectionId: string,
@@ -477,22 +485,50 @@ export async function getTimeUsageDetails(
   totalTimeMinutes: number;
   peakActivityHour: number;
 }> {
-  await new Promise((resolve) => setTimeout(resolve, 100));
+  const whereClause: { studentId: string; caseId: string; attemptNumber?: number } = {
+    studentId,
+    caseId,
+  };
+  if (attemptNumber !== undefined) {
+    whereClause.attemptNumber = attemptNumber;
+  }
+
+  const attempts = await prisma.attempt.findMany({
+    where: whereClause,
+    orderBy: { createdAt: "asc" },
+  });
+
+  const sessions = attempts.map((a) => ({
+    date: a.createdAt.toISOString().split("T")[0],
+    durationMinutes: Math.round((a.totalTimeSeconds || 0) / 60),
+    messagesCount: a.totalMessages || 0,
+  }));
+
+  const totalTimeMinutes = sessions.reduce(
+    (sum, s) => sum + s.durationMinutes,
+    0
+  );
+
+  const hours = attempts.map((a) => a.createdAt.getHours());
+  const hourCounts = hours.reduce(
+    (acc, h) => {
+      acc[h] = (acc[h] || 0) + 1;
+      return acc;
+    },
+    {} as Record<number, number>
+  );
+  const peakActivityHour =
+    Object.entries(hourCounts).sort(([, a], [, b]) => b - a)[0]?.[0] || "10";
 
   return {
-    sessions: [
-      { date: "2025-01-15", durationMinutes: 45, messagesCount: 24 },
-      { date: "2025-01-22", durationMinutes: 45, messagesCount: 31 },
-      { date: "2025-02-01", durationMinutes: 50, messagesCount: 28 },
-    ],
-    totalTimeMinutes: 140,
-    peakActivityHour: 10,
+    sessions,
+    totalTimeMinutes,
+    peakActivityHour: parseInt(peakActivityHour as string),
   };
 }
 
 /**
  * Get conversation details for a specific attempt
- * TODO: Replace with PostgreSQL query joining chat sessions
  */
 export async function getConversationDetails(
   sectionId: string,
@@ -508,38 +544,32 @@ export async function getConversationDetails(
     preview: string;
   }>;
 }> {
-  await new Promise((resolve) => setTimeout(resolve, 100));
-
-  return {
-    conversations: [
-      {
-        sessionId: "sess-001",
-        date: "2025-01-15",
-        messageCount: 24,
-        duration: 45,
-        preview: "Started with market analysis questions...",
-      },
-      {
-        sessionId: "sess-002",
-        date: "2025-01-22",
-        messageCount: 31,
-        duration: 45,
-        preview: "Focused on competitive positioning...",
-      },
-      {
-        sessionId: "sess-003",
-        date: "2025-02-01",
-        messageCount: 28,
-        duration: 50,
-        preview: "Final review and strategy refinement...",
-      },
-    ],
+  const whereClause: { studentId: string; caseId: string; attemptNumber?: number } = {
+    studentId,
+    caseId,
   };
+  if (attemptNumber !== undefined) {
+    whereClause.attemptNumber = attemptNumber;
+  }
+
+  const attempts = await prisma.attempt.findMany({
+    where: whereClause,
+    orderBy: { createdAt: "asc" },
+  });
+
+  const conversations = attempts.map((a) => ({
+    sessionId: a.id,
+    date: a.createdAt.toISOString().split("T")[0],
+    messageCount: a.totalMessages || 0,
+    duration: Math.round((a.totalTimeSeconds || 0) / 60),
+    preview: `Attempt ${a.attemptNumber}`,
+  }));
+
+  return { conversations };
 }
 
 /**
  * Get score details for all attempts
- * TODO: Replace with PostgreSQL query
  */
 export async function getScoreDetails(
   sectionId: string,
@@ -559,49 +589,54 @@ export async function getScoreDetails(
   classAverage: number;
   percentile: number;
 }> {
-  await new Promise((resolve) => setTimeout(resolve, 100));
+  const [studentAttempts, allAttempts] = await Promise.all([
+    prisma.attempt.findMany({
+      where: { studentId, caseId },
+      orderBy: { attemptNumber: "asc" },
+    }),
+    prisma.attempt.findMany({
+      where: { caseId },
+    }),
+  ]);
+
+  const attempts = studentAttempts
+    .filter((a) => a.score !== null)
+    .map((a) => ({
+      attemptNumber: a.attemptNumber,
+      score: a.score!,
+      date: a.createdAt.toISOString().split("T")[0],
+      breakdown: [],
+    }));
+
+  const allScores = allAttempts
+    .map((a) => a.score)
+    .filter((s): s is number => s !== null);
+  const classAverage =
+    allScores.length > 0
+      ? Math.round(allScores.reduce((a, b) => a + b, 0) / allScores.length)
+      : 0;
+
+  const studentBestScore =
+    studentAttempts.length > 0
+      ? Math.max(
+          ...studentAttempts
+            .map((a) => a.score)
+            .filter((s): s is number => s !== null)
+        )
+      : 0;
+  const belowCount = allScores.filter((s) => s < studentBestScore).length;
+  const percentile =
+    allScores.length > 0 ? Math.round((belowCount / allScores.length) * 100) : 0;
 
   return {
-    attempts: [
-      {
-        attemptNumber: 1,
-        score: 65,
-        date: "2025-01-15",
-        breakdown: [
-          { category: "Analysis", score: 18, maxScore: 30 },
-          { category: "Strategy", score: 22, maxScore: 35 },
-          { category: "Communication", score: 25, maxScore: 35 },
-        ],
-      },
-      {
-        attemptNumber: 2,
-        score: 78,
-        date: "2025-01-22",
-        breakdown: [
-          { category: "Analysis", score: 24, maxScore: 30 },
-          { category: "Strategy", score: 26, maxScore: 35 },
-          { category: "Communication", score: 28, maxScore: 35 },
-        ],
-      },
-      {
-        attemptNumber: 3,
-        score: 85,
-        date: "2025-02-01",
-        breakdown: [
-          { category: "Analysis", score: 27, maxScore: 30 },
-          { category: "Strategy", score: 28, maxScore: 35 },
-          { category: "Communication", score: 30, maxScore: 35 },
-        ],
-      },
-    ],
-    classAverage: 72,
-    percentile: 85,
+    attempts,
+    classAverage,
+    percentile,
   };
 }
 
 /**
  * Get learning curve data with trend analysis
- * TODO: Replace with PostgreSQL query with analytics
  */
 export async function getLearningCurveDetails(
   sectionId: string,
@@ -618,16 +653,430 @@ export async function getLearningCurveDetails(
   improvementRate: number;
   predictedNextScore: number | null;
 }> {
-  await new Promise((resolve) => setTimeout(resolve, 100));
+  const attempts = await prisma.attempt.findMany({
+    where: { studentId, caseId },
+    orderBy: { attemptNumber: "asc" },
+  });
+
+  const dataPoints = attempts
+    .filter((a) => a.score !== null)
+    .map((a) => ({
+      attemptNumber: a.attemptNumber,
+      score: a.score!,
+      date: a.createdAt.toISOString().split("T")[0],
+      timeSpentMinutes: Math.round((a.totalTimeSeconds || 0) / 60),
+    }));
+
+  const scores = dataPoints.map((d) => d.score);
+  const trend = calculateTrend(scores);
+
+  let improvementRate = 0;
+  if (scores.length >= 2) {
+    improvementRate = Math.round(
+      (scores[scores.length - 1] - scores[0]) / (scores.length - 1)
+    );
+  }
+
+  let predictedNextScore: number | null = null;
+  if (scores.length >= 2 && improvementRate > 0) {
+    predictedNextScore = Math.min(100, scores[scores.length - 1] + improvementRate);
+  }
 
   return {
-    dataPoints: [
-      { attemptNumber: 1, score: 65, date: "2025-01-15", timeSpentMinutes: 45 },
-      { attemptNumber: 2, score: 78, date: "2025-01-22", timeSpentMinutes: 45 },
-      { attemptNumber: 3, score: 85, date: "2025-02-01", timeSpentMinutes: 50 },
-    ],
-    trend: "improving",
-    improvementRate: 10,
-    predictedNextScore: 90,
+    dataPoints,
+    trend,
+    improvementRate,
+    predictedNextScore,
   };
+}
+
+// ============================================================================
+// TEACHER CLASS OVERVIEW TYPES & FUNCTIONS
+// ============================================================================
+
+export type AttemptViewMode =
+  | "best"
+  | "first"
+  | "latest"
+  | { type: "specific"; attemptNumber: number };
+
+export interface StudentGradebookRow {
+  studentId: string;
+  studentName: string;
+  studentNumber: string;
+  attempts: StudentAttempt[];
+  bestScore: number | null;
+  firstAttemptScore: number | null;
+  latestAttemptScore: number | null;
+  maxAttemptNumber: number;
+}
+
+export interface ClassGradebookData {
+  section: CourseSection;
+  case: Case;
+  students: StudentGradebookRow[];
+  maxAttemptsInClass: number;
+  classStats: {
+    average: number | null;
+    highest: number | null;
+    lowest: number | null;
+    missingCount: number;
+    totalStudents: number;
+  };
+}
+
+export interface ClassTrendData {
+  attemptNumber: number;
+  averageScore: number;
+  studentCount: number;
+}
+
+export interface ClassProcessAnalytics {
+  avgTimeMinutes: number;
+  minTimeMinutes: number;
+  maxTimeMinutes: number;
+  avgMessageCount: number;
+  minMessageCount: number;
+  maxMessageCount: number;
+  topQuestionThemes: Array<{
+    theme: string;
+    count: number;
+    percentage: number;
+  }>;
+}
+
+export interface StudentOverviewData {
+  student: Student;
+  section: CourseSection;
+  casesWithScores: Array<{
+    case: Case;
+    bestScore: number | null;
+    latestScore: number | null;
+    attemptCount: number;
+    lastAttemptDate: string | null;
+  }>;
+}
+
+/**
+ * Get gradebook data for a class and case
+ */
+export async function getClassGradebook(
+  sectionId: string,
+  caseId: string
+): Promise<ClassGradebookData | null> {
+  const [cohort, caseData] = await Promise.all([
+    prisma.cohort.findUnique({ where: { id: sectionId } }),
+    prisma.case.findUnique({
+      where: { id: caseId },
+      include: { assignments: true },
+    }),
+  ]);
+
+  if (!cohort || !caseData) {
+    return null;
+  }
+
+  const studentsInSection = await prisma.student.findMany({
+    where: {
+      assignments: {
+        some: { cohortId: sectionId },
+      },
+    },
+    include: {
+      assignments: true,
+      attempts: {
+        where: { caseId },
+        orderBy: { attemptNumber: "asc" },
+      },
+    },
+    orderBy: { displayName: "asc" },
+  });
+
+  const studentRows: StudentGradebookRow[] = studentsInSection.map((student) => {
+    const attempts = student.attempts.map(prismaAttemptToStudentAttempt);
+    const scores = student.attempts
+      .map((a) => a.score)
+      .filter((s): s is number => s !== null);
+
+    return {
+      studentId: student.id,
+      studentName: student.displayName || student.email.split("@")[0],
+      studentNumber: student.studentNumber || student.email.split("@")[0],
+      attempts,
+      bestScore: scores.length > 0 ? Math.max(...scores) : null,
+      firstAttemptScore: student.attempts[0]?.score ?? null,
+      latestAttemptScore:
+        student.attempts.length > 0
+          ? student.attempts[student.attempts.length - 1].score
+          : null,
+      maxAttemptNumber:
+        student.attempts.length > 0
+          ? Math.max(...student.attempts.map((a) => a.attemptNumber))
+          : 0,
+    };
+  });
+
+  const maxAttemptsInClass = Math.max(
+    ...studentRows.map((s) => s.maxAttemptNumber),
+    0
+  );
+
+  const allBestScores = studentRows
+    .map((s) => s.bestScore)
+    .filter((s): s is number => s !== null);
+
+  const missingCount = studentRows.filter((s) => s.bestScore === null).length;
+
+  return {
+    section: cohortToCourseSection(cohort),
+    case: prismaCaseToCase(caseData),
+    students: studentRows,
+    maxAttemptsInClass,
+    classStats: {
+      average:
+        allBestScores.length > 0
+          ? Math.round(
+              allBestScores.reduce((a, b) => a + b, 0) / allBestScores.length
+            )
+          : null,
+      highest: allBestScores.length > 0 ? Math.max(...allBestScores) : null,
+      lowest: allBestScores.length > 0 ? Math.min(...allBestScores) : null,
+      missingCount,
+      totalStudents: studentRows.length,
+    },
+  };
+}
+
+/**
+ * Get score for a student based on attempt view mode
+ */
+export function getScoreByAttemptMode(
+  row: StudentGradebookRow,
+  mode: AttemptViewMode
+): number | null {
+  if (mode === "best") {
+    return row.bestScore;
+  }
+  if (mode === "first") {
+    return row.firstAttemptScore;
+  }
+  if (mode === "latest") {
+    return row.latestAttemptScore;
+  }
+  if (typeof mode === "object" && mode.type === "specific") {
+    const attempt = row.attempts.find(
+      (a) => a.attemptNumber === mode.attemptNumber
+    );
+    return attempt?.score ?? null;
+  }
+  return null;
+}
+
+/**
+ * Calculate class stats based on attempt view mode
+ */
+export function calculateClassStats(
+  students: StudentGradebookRow[],
+  mode: AttemptViewMode
+): {
+  average: number | null;
+  highest: number | null;
+  lowest: number | null;
+  missingCount: number;
+  totalStudents: number;
+} {
+  const scores = students
+    .map((s) => getScoreByAttemptMode(s, mode))
+    .filter((s): s is number => s !== null);
+
+  const missingCount = students.filter(
+    (s) => getScoreByAttemptMode(s, mode) === null
+  ).length;
+
+  return {
+    average:
+      scores.length > 0
+        ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length)
+        : null,
+    highest: scores.length > 0 ? Math.max(...scores) : null,
+    lowest: scores.length > 0 ? Math.min(...scores) : null,
+    missingCount,
+    totalStudents: students.length,
+  };
+}
+
+/**
+ * Get class trend data (average score per attempt number)
+ */
+export async function getClassTrendData(
+  sectionId: string,
+  caseId: string
+): Promise<ClassTrendData[]> {
+  const gradebook = await getClassGradebook(sectionId, caseId);
+  if (!gradebook) return [];
+
+  const attemptScores: Record<number, number[]> = {};
+
+  for (const student of gradebook.students) {
+    for (const attempt of student.attempts) {
+      if (attempt.score !== null) {
+        if (!attemptScores[attempt.attemptNumber]) {
+          attemptScores[attempt.attemptNumber] = [];
+        }
+        attemptScores[attempt.attemptNumber].push(attempt.score);
+      }
+    }
+  }
+
+  return Object.entries(attemptScores)
+    .map(([attemptNum, scores]) => ({
+      attemptNumber: parseInt(attemptNum),
+      averageScore: Math.round(
+        scores.reduce((a, b) => a + b, 0) / scores.length
+      ),
+      studentCount: scores.length,
+    }))
+    .sort((a, b) => a.attemptNumber - b.attemptNumber);
+}
+
+/**
+ * Get process/learning analytics for a class and case
+ */
+export async function getClassProcessAnalytics(
+  sectionId: string,
+  caseId: string
+): Promise<ClassProcessAnalytics> {
+  const studentsInSection = await prisma.student.findMany({
+    where: {
+      assignments: {
+        some: { cohortId: sectionId },
+      },
+    },
+    include: {
+      attempts: {
+        where: { caseId },
+      },
+    },
+  });
+
+  const allAttempts = studentsInSection.flatMap((s) => s.attempts);
+
+  const timesMinutes = allAttempts
+    .map((a) => Math.round((a.totalTimeSeconds || 0) / 60))
+    .filter((t) => t > 0);
+  const messageCounts = allAttempts
+    .map((a) => a.totalMessages || 0)
+    .filter((m) => m > 0);
+
+  return {
+    avgTimeMinutes:
+      timesMinutes.length > 0
+        ? Math.round(
+            timesMinutes.reduce((a, b) => a + b, 0) / timesMinutes.length
+          )
+        : 0,
+    minTimeMinutes: timesMinutes.length > 0 ? Math.min(...timesMinutes) : 0,
+    maxTimeMinutes: timesMinutes.length > 0 ? Math.max(...timesMinutes) : 0,
+    avgMessageCount:
+      messageCounts.length > 0
+        ? Math.round(
+            messageCounts.reduce((a, b) => a + b, 0) / messageCounts.length
+          )
+        : 0,
+    minMessageCount: messageCounts.length > 0 ? Math.min(...messageCounts) : 0,
+    maxMessageCount: messageCounts.length > 0 ? Math.max(...messageCounts) : 0,
+    topQuestionThemes: [],
+  };
+}
+
+/**
+ * Get student overview across all cases in a section
+ */
+export async function getStudentOverview(
+  sectionId: string,
+  studentId: string
+): Promise<StudentOverviewData | null> {
+  const [cohort, student] = await Promise.all([
+    prisma.cohort.findUnique({ where: { id: sectionId } }),
+    prisma.student.findUnique({
+      where: { id: studentId },
+      include: { assignments: true },
+    }),
+  ]);
+
+  if (!cohort || !student) {
+    return null;
+  }
+
+  const casesInSection = await prisma.case.findMany({
+    where: {
+      assignments: {
+        some: { cohortId: sectionId },
+      },
+    },
+    include: {
+      assignments: true,
+      attempts: {
+        where: { studentId },
+        orderBy: { attemptNumber: "asc" },
+      },
+    },
+  });
+
+  const casesWithScores = casesInSection.map((caseData) => {
+    const attempts = caseData.attempts;
+    const scores = attempts
+      .map((a) => a.score)
+      .filter((s): s is number => s !== null);
+
+    return {
+      case: prismaCaseToCase(caseData),
+      bestScore: scores.length > 0 ? Math.max(...scores) : null,
+      latestScore:
+        attempts.length > 0 ? attempts[attempts.length - 1].score : null,
+      attemptCount: attempts.length,
+      lastAttemptDate:
+        attempts.length > 0
+          ? (
+              attempts[attempts.length - 1].submittedAt ||
+              attempts[attempts.length - 1].createdAt
+            )
+              .toISOString()
+              .split("T")[0]
+          : null,
+    };
+  });
+
+  return {
+    student: prismaStudentToStudent(student),
+    section: cohortToCourseSection(cohort),
+    casesWithScores,
+  };
+}
+
+/**
+ * Export gradebook data as CSV string
+ */
+export function exportGradebookToCSV(
+  gradebook: ClassGradebookData,
+  mode: AttemptViewMode
+): string {
+  const headers = ["Student Name", "Student ID", "Score"];
+  const rows = gradebook.students.map((student) => {
+    const score = getScoreByAttemptMode(student, mode);
+    return [
+      student.studentName,
+      student.studentNumber,
+      score !== null ? score.toString() : "N/A",
+    ];
+  });
+
+  const csvContent = [
+    headers.join(","),
+    ...rows.map((row) =>
+      row.map((cell) => `"${cell.replace(/"/g, '""')}"`).join(",")
+    ),
+  ].join("\n");
+
+  return csvContent;
 }
