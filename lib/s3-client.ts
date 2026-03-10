@@ -28,6 +28,7 @@ import { gzip, gunzip } from "zlib";
 import { promisify } from "util";
 import type { Avatar, VersionManifest, AvatarVersion } from "./avatar-storage";
 import type { ChatSession, ChatMessage, ChatSessionMetadata, VideoAudioProfile, CaseStudy } from "@/types";
+import type { Cohort } from "@/types/cohort";
 
 // S3 client configuration - shared between avatar and chat storage
 const s3Client = new S3Client({
@@ -56,6 +57,10 @@ const PROFILE_INDEX_FILE = `${PROFILES_PREFIX}index.json`;
 // Case storage prefix and index
 const CASES_PREFIX = "cases/";
 const CASE_INDEX_FILE = `${CASES_PREFIX}index.json`;
+
+// Cohort storage prefix and index
+const COHORTS_PREFIX = "cohorts/";
+const COHORT_INDEX_FILE = `${COHORTS_PREFIX}index.json`;
 
 // Global compression switch for chat sessions
 const ENABLE_CHAT_COMPRESSION =
@@ -1201,6 +1206,144 @@ export class S3AvatarStorage {
     }
     
     return null; // No image found
+  }
+
+  /**
+   * ==================================================================================
+   * COHORT STORAGE METHODS
+   * ==================================================================================
+   */
+
+  async saveCohort(cohort: Cohort): Promise<void> {
+    const key = `${COHORTS_PREFIX}${cohort.id}.json`;
+    const command = new PutObjectCommand({
+      Bucket: BUCKET_NAME,
+      Key: key,
+      Body: JSON.stringify(cohort, null, 2),
+      ContentType: "application/json",
+    });
+    await s3Client.send(command);
+
+    const index = await this.readCohortIndex();
+    const existingIdx = index.findIndex((c) => c.id === cohort.id);
+    const indexEntry = {
+      id: cohort.id,
+      name: cohort.name,
+      accessCode: cohort.accessCode,
+      studentCount: cohort.students?.length || 0,
+      isActive: cohort.isActive,
+      updatedAt: cohort.updatedAt,
+    };
+
+    if (existingIdx >= 0) {
+      index[existingIdx] = indexEntry;
+    } else {
+      index.push(indexEntry);
+    }
+    await this.writeCohortIndex(index);
+  }
+
+  async getCohort(id: string): Promise<Cohort | null> {
+    try {
+      const key = `${COHORTS_PREFIX}${id}.json`;
+      const command = new GetObjectCommand({
+        Bucket: BUCKET_NAME,
+        Key: key,
+      });
+      const response = await s3Client.send(command);
+      if (!response.Body) return null;
+      const content = await response.Body.transformToString();
+      return JSON.parse(content) as Cohort;
+    } catch (error: any) {
+      if (error.name === "NoSuchKey" || error.$metadata?.httpStatusCode === 404) {
+        return null;
+      }
+      throw error;
+    }
+  }
+
+  async getCohortByAccessCode(accessCode: string): Promise<Cohort | null> {
+    const index = await this.readCohortIndex();
+    const entry = index.find((c) => c.accessCode === accessCode);
+    if (!entry) return null;
+    return this.getCohort(entry.id);
+  }
+
+  async deleteCohort(id: string): Promise<void> {
+    const key = `${COHORTS_PREFIX}${id}.json`;
+    const command = new DeleteObjectCommand({
+      Bucket: BUCKET_NAME,
+      Key: key,
+    });
+    await s3Client.send(command);
+
+    const index = await this.readCohortIndex();
+    const filtered = index.filter((c) => c.id !== id);
+    await this.writeCohortIndex(filtered);
+  }
+
+  async listCohorts(professorId?: string): Promise<Cohort[]> {
+    const index = await this.readCohortIndex();
+    const cohorts: Cohort[] = [];
+
+    for (const entry of index) {
+      const cohort = await this.getCohort(entry.id);
+      if (cohort) {
+        if (!professorId || cohort.professorId === professorId) {
+          cohorts.push(cohort);
+        }
+      }
+    }
+
+    return cohorts.sort(
+      (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
+    );
+  }
+
+  private async readCohortIndex(): Promise<
+    Array<{
+      id: string;
+      name: string;
+      accessCode: string;
+      studentCount: number;
+      isActive: boolean;
+      updatedAt: string;
+    }>
+  > {
+    try {
+      const command = new GetObjectCommand({
+        Bucket: BUCKET_NAME,
+        Key: COHORT_INDEX_FILE,
+      });
+      const response = await s3Client.send(command);
+      if (!response.Body) return [];
+      const content = await response.Body.transformToString();
+      return JSON.parse(content);
+    } catch (error: any) {
+      if (error.name === "NoSuchKey" || error.$metadata?.httpStatusCode === 404) {
+        return [];
+      }
+      throw error;
+    }
+  }
+
+  private async writeCohortIndex(
+    index: Array<{
+      id: string;
+      name: string;
+      accessCode: string;
+      studentCount: number;
+      isActive: boolean;
+      updatedAt: string;
+    }>
+  ): Promise<void> {
+    const command = new PutObjectCommand({
+      Bucket: BUCKET_NAME,
+      Key: COHORT_INDEX_FILE,
+      Body: JSON.stringify(index, null, 2),
+      ContentType: "application/json",
+    });
+    await s3Client.send(command);
   }
 }
 

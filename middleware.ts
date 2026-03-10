@@ -66,6 +66,10 @@ const PUBLIC_ROUTES = [
   "/api/cta/validate-session", // Session validation for CTA forms
   "/api/cta/submit", // Form submission from mobile users
   "/cta/form", // CTA form page for mobile users
+  // Cohort join endpoints (public so students can join without login)
+  "/join", // Join cohort page
+  "/api/cohort/join", // Join cohort API
+  "/api/cohort/get", // Get cohort info (needed for join page)
 ];
 
 /**
@@ -153,8 +157,14 @@ const ADMIN_ROUTES = [
   "/api/case/list",
   // Student History routes
   "/student-history",
+<<<<<<< HEAD
+  // Cohort management
+  "/cohort-management",
+  "/api/cohort",
+=======
   // Teacher Class Overview routes
   "/teacher",
+>>>>>>> origin/main
 ];
 
 /**
@@ -187,6 +197,7 @@ const KIOSK_ROUTES: string[] = [
 
 const STUDENT_ROUTES: string[] = [
   "/student-cases",
+  "/api/student/cases",
 ];
 
 /**

@@ -200,6 +200,7 @@ export interface CaseStudy {
   name: string;
   backgroundInfo: string;
   avatars: CaseAvatar[];
+  cohortIds: string[];  // Cases are assigned to cohorts (following Alfred's sectionIds pattern)
   createdBy: string;
   lastEditedBy: string;
   createdAt: string;
