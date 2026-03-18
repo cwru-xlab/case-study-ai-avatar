@@ -14,18 +14,30 @@ import {
   Briefcase,
   ChevronRight,
 } from "lucide-react";
-import {
-  getSectionById,
-  getCasesBySection,
-  getStudentsBySection,
-  type CourseSection,
-  type Case,
-} from "@/lib/student-history-service";
+import type { CourseSection, Case } from "@/lib/student-history-service";
 
 interface PageProps {
   params: Promise<{
     classId: string;
   }>;
+}
+
+async function fetchSectionData(classId: string) {
+  const [sectionRes, casesRes, studentsRes] = await Promise.all([
+    fetch(`/api/student-history/section/${classId}`),
+    fetch(`/api/student-history/section/${classId}/cases`),
+    fetch(`/api/student-history/section/${classId}/students`),
+  ]);
+
+  if (!sectionRes.ok) {
+    throw new Error("Section not found");
+  }
+
+  const section = await sectionRes.json();
+  const cases = await casesRes.json();
+  const students = await studentsRes.json();
+
+  return { section, cases, students };
 }
 
 export default function ClassDashboardPage({ params }: PageProps) {
@@ -44,20 +56,10 @@ export default function ClassDashboardPage({ params }: PageProps) {
       setLoading(true);
       setError(null);
       try {
-        const [sectionData, casesData, studentsData] = await Promise.all([
-          getSectionById(classId),
-          getCasesBySection(classId),
-          getStudentsBySection(classId),
-        ]);
-
-        if (!sectionData) {
-          setError("Class not found");
-          return;
-        }
-
-        setSection(sectionData);
-        setCases(casesData);
-        setStudentCount(studentsData.length);
+        const { section, cases, students } = await fetchSectionData(classId);
+        setSection(section);
+        setCases(cases);
+        setStudentCount(students.length);
       } catch (err) {
         setError("Failed to load class data");
         console.error(err);

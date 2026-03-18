@@ -28,9 +28,6 @@ import {
   AlertTriangle,
 } from "lucide-react";
 import {
-  getClassGradebook,
-  getClassTrendData,
-  getClassProcessAnalytics,
   getScoreByAttemptMode,
   calculateClassStats,
   exportGradebookToCSV,
@@ -52,6 +49,14 @@ type SortField = "name" | "score";
 type SortDirection = "asc" | "desc";
 type FilterMode = "all" | "below_threshold" | "missing";
 
+async function fetchGradebookData(classId: string, caseId: string) {
+  const res = await fetch(`/api/student-history/gradebook/${classId}/${caseId}`);
+  if (!res.ok) {
+    throw new Error("Failed to fetch gradebook");
+  }
+  return res.json();
+}
+
 function ClassTrendChart({ data }: { data: ClassTrendData[] }) {
   if (data.length === 0) {
     return (
@@ -61,7 +66,6 @@ function ClassTrendChart({ data }: { data: ClassTrendData[] }) {
     );
   }
 
-  // Single attempt case - compact display
   if (data.length === 1) {
     return (
       <div className="py-4">
@@ -77,7 +81,6 @@ function ClassTrendChart({ data }: { data: ClassTrendData[] }) {
     );
   }
 
-  // Calculate Y-axis range with padding, clamped to [0, 100]
   const scores = data.map((d) => d.averageScore);
   const minScore = Math.min(...scores);
   const maxScore = Math.max(...scores);
@@ -86,9 +89,7 @@ function ClassTrendChart({ data }: { data: ClassTrendData[] }) {
   const yMax = Math.min(100, Math.ceil(maxScore + padding));
   const yRange = yMax - yMin || 1;
 
-  // SVG dimensions - full width, compact height
   const svgHeight = 80;
-  const labelHeight = 20;
   const topPadding = 18;
   const bottomPadding = 4;
   const sidePadding = 24;
@@ -96,12 +97,7 @@ function ClassTrendChart({ data }: { data: ClassTrendData[] }) {
 
   return (
     <div className="w-full">
-      {/* SVG Sparkline */}
-      <svg
-        className="w-full"
-        height={svgHeight}
-        preserveAspectRatio="none"
-      >
+      <svg className="w-full" height={svgHeight} preserveAspectRatio="none">
         <defs>
           <linearGradient id="lineGradient" x1="0%" y1="0%" x2="100%" y2="0%">
             <stop offset="0%" stopColor="hsl(var(--heroui-primary))" stopOpacity="0.8" />
@@ -109,7 +105,6 @@ function ClassTrendChart({ data }: { data: ClassTrendData[] }) {
           </linearGradient>
         </defs>
 
-        {/* Render using percentage-based positioning */}
         {(() => {
           const points = data.map((d, index) => {
             const xPercent = sidePadding + ((100 - 2 * sidePadding) * index) / (data.length - 1);
@@ -123,7 +118,6 @@ function ClassTrendChart({ data }: { data: ClassTrendData[] }) {
 
           return (
             <g>
-              {/* Subtle baseline */}
               <line
                 x1={`${sidePadding}%`}
                 y1={topPadding + plotHeight}
@@ -133,8 +127,6 @@ function ClassTrendChart({ data }: { data: ClassTrendData[] }) {
                 strokeWidth="1"
                 className="text-default-100"
               />
-
-              {/* Line path */}
               <path
                 d={pathD}
                 fill="none"
@@ -143,11 +135,8 @@ function ClassTrendChart({ data }: { data: ClassTrendData[] }) {
                 strokeLinecap="round"
                 strokeLinejoin="round"
               />
-
-              {/* Points and score labels */}
               {points.map((point, index) => (
                 <g key={index}>
-                  {/* Score label above */}
                   <text
                     x={`${point.xPercent}%`}
                     y={point.yPos - 6}
@@ -157,19 +146,8 @@ function ClassTrendChart({ data }: { data: ClassTrendData[] }) {
                   >
                     {point.data.averageScore}
                   </text>
-                  {/* Dot with white background */}
-                  <circle
-                    cx={`${point.xPercent}%`}
-                    cy={point.yPos}
-                    r="5"
-                    className="fill-background"
-                  />
-                  <circle
-                    cx={`${point.xPercent}%`}
-                    cy={point.yPos}
-                    r="4"
-                    className="fill-primary"
-                  />
+                  <circle cx={`${point.xPercent}%`} cy={point.yPos} r="5" className="fill-background" />
+                  <circle cx={`${point.xPercent}%`} cy={point.yPos} r="4" className="fill-primary" />
                 </g>
               ))}
             </g>
@@ -177,7 +155,6 @@ function ClassTrendChart({ data }: { data: ClassTrendData[] }) {
         })()}
       </svg>
 
-      {/* Attempt labels row - compact, below the chart */}
       <div className="flex justify-between px-[24%] mt-1">
         {data.map((d) => (
           <div key={d.attemptNumber} className="text-center">
@@ -243,9 +220,7 @@ function StatCard({
     <Card className="flex-1 min-w-[120px]">
       <CardBody className="p-3">
         <div className="flex items-center gap-2">
-          <div className={`p-1.5 rounded-lg ${colorClasses[color]}`}>
-            {icon}
-          </div>
+          <div className={`p-1.5 rounded-lg ${colorClasses[color]}`}>{icon}</div>
           <div>
             <p className="text-xs text-default-500">{label}</p>
             <p className="text-lg font-bold">{value}</p>
@@ -267,7 +242,6 @@ export default function CaseClassOverviewPage({ params }: PageProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // UI State
   const [attemptMode, setAttemptMode] = useState<AttemptViewMode>("best");
   const [sortField, setSortField] = useState<SortField>("name");
   const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
@@ -281,20 +255,10 @@ export default function CaseClassOverviewPage({ params }: PageProps) {
       setLoading(true);
       setError(null);
       try {
-        const [gradebookData, trend, analytics] = await Promise.all([
-          getClassGradebook(classId, caseId),
-          getClassTrendData(classId, caseId),
-          getClassProcessAnalytics(classId, caseId),
-        ]);
-
-        if (!gradebookData) {
-          setError("Class or case not found");
-          return;
-        }
-
-        setGradebook(gradebookData);
-        setTrendData(trend);
-        setProcessAnalytics(analytics);
+        const data = await fetchGradebookData(classId, caseId);
+        setGradebook(data.gradebook);
+        setTrendData(data.trendData);
+        setProcessAnalytics(data.processAnalytics);
       } catch (err) {
         setError("Failed to load gradebook data");
         console.error(err);
@@ -306,7 +270,6 @@ export default function CaseClassOverviewPage({ params }: PageProps) {
     loadData();
   }, [classId, caseId]);
 
-  // Computed values
   const currentStats = useMemo(() => {
     if (!gradebook) return null;
     return calculateClassStats(gradebook.students, attemptMode);
@@ -315,56 +278,33 @@ export default function CaseClassOverviewPage({ params }: PageProps) {
   const filteredAndSortedStudents = useMemo(() => {
     if (!gradebook) return [];
 
-    let students = [...gradebook.students];
+    let filtered = [...gradebook.students];
 
-    // Apply filter
     if (filterMode === "below_threshold") {
-      students = students.filter((s) => {
+      filtered = filtered.filter((s) => {
         const score = getScoreByAttemptMode(s, attemptMode);
         return score !== null && score < threshold;
       });
     } else if (filterMode === "missing") {
-      students = students.filter(
-        (s) => getScoreByAttemptMode(s, attemptMode) === null
-      );
+      filtered = filtered.filter((s) => {
+        const score = getScoreByAttemptMode(s, attemptMode);
+        return score === null;
+      });
     }
 
-    // Apply sort
-    students.sort((a, b) => {
+    filtered.sort((a, b) => {
       if (sortField === "name") {
         const cmp = a.studentName.localeCompare(b.studentName);
         return sortDirection === "asc" ? cmp : -cmp;
       } else {
-        const scoreA = getScoreByAttemptMode(a, attemptMode);
-        const scoreB = getScoreByAttemptMode(b, attemptMode);
-        if (scoreA === null && scoreB === null) return 0;
-        if (scoreA === null) return sortDirection === "asc" ? 1 : -1;
-        if (scoreB === null) return sortDirection === "asc" ? -1 : 1;
+        const scoreA = getScoreByAttemptMode(a, attemptMode) ?? -1;
+        const scoreB = getScoreByAttemptMode(b, attemptMode) ?? -1;
         return sortDirection === "asc" ? scoreA - scoreB : scoreB - scoreA;
       }
     });
 
-    return students;
-  }, [gradebook, filterMode, threshold, sortField, sortDirection, attemptMode]);
-
-  const attemptOptions = useMemo(() => {
-    if (!gradebook) return [];
-    const options: Array<{ key: string; label: string; mode: AttemptViewMode }> = [
-      { key: "best", label: "Best Score", mode: "best" },
-      { key: "first", label: "First Attempt", mode: "first" },
-      { key: "latest", label: "Latest Attempt", mode: "latest" },
-    ];
-
-    for (let i = 1; i <= gradebook.maxAttemptsInClass; i++) {
-      options.push({
-        key: `attempt_${i}`,
-        label: `Attempt ${i}`,
-        mode: { type: "specific", attemptNumber: i },
-      });
-    }
-
-    return options;
-  }, [gradebook]);
+    return filtered;
+  }, [gradebook, attemptMode, filterMode, threshold, sortField, sortDirection]);
 
   const handleSort = (field: SortField) => {
     if (sortField === field) {
@@ -382,21 +322,17 @@ export default function CaseClassOverviewPage({ params }: PageProps) {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `gradebook_${classId}_${caseId}.csv`;
+    a.download = `gradebook-${classId}-${caseId}.csv`;
     a.click();
     URL.revokeObjectURL(url);
   };
 
-  const handleCopyCSV = async () => {
+  const handleCopyTable = async () => {
     if (!gradebook) return;
     const csv = exportGradebookToCSV(gradebook, attemptMode);
-    try {
-      await navigator.clipboard.writeText(csv);
-      setCopySuccess(true);
-      setTimeout(() => setCopySuccess(false), 2000);
-    } catch (err) {
-      console.error("Failed to copy:", err);
-    }
+    await navigator.clipboard.writeText(csv);
+    setCopySuccess(true);
+    setTimeout(() => setCopySuccess(false), 2000);
   };
 
   const handleStudentClick = (studentId: string) => {
@@ -421,7 +357,7 @@ export default function CaseClassOverviewPage({ params }: PageProps) {
           startContent={<ArrowLeft size={16} />}
           onPress={() => router.push(`/teacher/class/${classId}`)}
         >
-          Back to Class Dashboard
+          Back to Class
         </Button>
       </div>
     );
@@ -441,10 +377,10 @@ export default function CaseClassOverviewPage({ params }: PageProps) {
           </Button>
         </div>
 
-        <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
           <div>
-            <h1 className={title({ size: "sm" })}>Case Class Overview</h1>
-            <div className="flex flex-wrap items-center gap-3 mt-2">
+            <h1 className={title({ size: "sm" })}>Case Gradebook</h1>
+            <div className="flex items-center gap-4 mt-2">
               <div className="flex items-center gap-2">
                 <BookOpen size={16} className="text-default-400" />
                 <span className="font-medium">{gradebook.section.code}</span>
@@ -456,104 +392,97 @@ export default function CaseClassOverviewPage({ params }: PageProps) {
               </div>
             </div>
           </div>
+
+          <div className="flex items-center gap-2">
+            <Button
+              variant="flat"
+              size="sm"
+              startContent={<Download size={14} />}
+              onPress={handleExportCSV}
+            >
+              Export CSV
+            </Button>
+            <Button
+              variant="flat"
+              size="sm"
+              startContent={copySuccess ? <Trophy size={14} /> : <Copy size={14} />}
+              onPress={handleCopyTable}
+              color={copySuccess ? "success" : "default"}
+            >
+              {copySuccess ? "Copied!" : "Copy"}
+            </Button>
+          </div>
         </div>
       </div>
 
-      {/* PRIMARY BLOCK: Gradebook */}
+      {/* Main Gradebook Card */}
       <Card className="mb-6">
-        <CardHeader className="flex flex-col gap-4 pb-0">
-          <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 w-full">
-            <h2 className="text-xl font-semibold flex items-center gap-2">
-              <Trophy size={20} className="text-primary" />
-              Gradebook
-            </h2>
-
-            {/* Controls */}
+        <CardHeader className="flex flex-col gap-4">
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 w-full">
             <div className="flex flex-wrap items-center gap-3">
-              {/* Attempt View Selector */}
               <Select
-                label="Attempt View"
-                selectedKeys={[
-                  typeof attemptMode === "string"
-                    ? attemptMode
-                    : `attempt_${attemptMode.attemptNumber}`,
-                ]}
-                onSelectionChange={(keys) => {
-                  const key = Array.from(keys)[0] as string;
-                  const option = attemptOptions.find((o) => o.key === key);
-                  if (option) setAttemptMode(option.mode);
-                }}
-                className="w-40"
+                label="View Mode"
                 size="sm"
+                className="w-36"
+                selectedKeys={[typeof attemptMode === "string" ? attemptMode : "specific"]}
+                onSelectionChange={(keys) => {
+                  const value = Array.from(keys)[0] as string;
+                  if (value === "best" || value === "first" || value === "latest") {
+                    setAttemptMode(value);
+                  }
+                }}
               >
-                {attemptOptions.map((option) => (
-                  <SelectItem key={option.key}>{option.label}</SelectItem>
-                ))}
+                <SelectItem key="best">Best Score</SelectItem>
+                <SelectItem key="first">First Attempt</SelectItem>
+                <SelectItem key="latest">Latest Attempt</SelectItem>
               </Select>
 
-              {/* Filter */}
               <Select
                 label="Filter"
+                size="sm"
+                className="w-40"
                 selectedKeys={[filterMode]}
                 onSelectionChange={(keys) => {
                   setFilterMode(Array.from(keys)[0] as FilterMode);
                 }}
-                className="w-40"
-                size="sm"
-                startContent={<Filter size={14} />}
               >
                 <SelectItem key="all">All Students</SelectItem>
                 <SelectItem key="below_threshold">Below Threshold</SelectItem>
-                <SelectItem key="missing">Missing Score</SelectItem>
+                <SelectItem key="missing">Missing Scores</SelectItem>
               </Select>
 
               {filterMode === "below_threshold" && (
                 <Input
                   type="number"
                   label="Threshold"
-                  value={threshold.toString()}
-                  onChange={(e) => setThreshold(parseInt(e.target.value) || 0)}
-                  className="w-24"
                   size="sm"
+                  className="w-24"
+                  value={String(threshold)}
+                  onChange={(e) => setThreshold(Number(e.target.value))}
                 />
               )}
+            </div>
 
-              {/* Export buttons */}
-              <div className="flex gap-2">
-                <Button
-                  size="sm"
-                  variant="flat"
-                  startContent={<Download size={14} />}
-                  onPress={handleExportCSV}
-                >
-                  Export CSV
-                </Button>
-                <Button
-                  size="sm"
-                  variant="flat"
-                  color={copySuccess ? "success" : "default"}
-                  startContent={<Copy size={14} />}
-                  onPress={handleCopyCSV}
-                >
-                  {copySuccess ? "Copied!" : "Copy CSV"}
-                </Button>
-              </div>
+            <div className="flex items-center gap-2 text-sm text-default-500">
+              <Users size={16} />
+              <span>
+                {filteredAndSortedStudents.length} of {gradebook.students.length} students
+              </span>
             </div>
           </div>
 
-          {/* Summary Stats */}
           {currentStats && (
-            <div className="flex flex-wrap gap-3 w-full pt-2">
+            <div className="flex flex-wrap gap-3 w-full">
               <StatCard
-                label="Class Average"
+                label="Average"
                 value={currentStats.average !== null ? currentStats.average : "N/A"}
-                icon={<TrendingUp size={16} />}
+                icon={<Trophy size={16} />}
                 color="primary"
               />
               <StatCard
                 label="Highest"
                 value={currentStats.highest !== null ? currentStats.highest : "N/A"}
-                icon={<Trophy size={16} />}
+                icon={<TrendingUp size={16} />}
                 color="success"
               />
               <StatCard
@@ -573,20 +502,15 @@ export default function CaseClassOverviewPage({ params }: PageProps) {
         </CardHeader>
 
         <CardBody>
-          {/* Gradebook Table */}
           {gradebook.students.length === 0 ? (
             <div className="py-12 text-center">
               <Users size={48} className="mx-auto text-default-300 mb-4" />
-              <p className="text-default-500 text-lg">
-                No students enrolled in this class.
-              </p>
+              <p className="text-default-500 text-lg">No students enrolled in this class.</p>
             </div>
           ) : filteredAndSortedStudents.length === 0 ? (
             <div className="py-12 text-center">
               <Filter size={48} className="mx-auto text-default-300 mb-4" />
-              <p className="text-default-500 text-lg">
-                No students match the current filter.
-              </p>
+              <p className="text-default-500 text-lg">No students match the current filter.</p>
             </div>
           ) : (
             <div className="overflow-x-auto">
@@ -599,33 +523,17 @@ export default function CaseClassOverviewPage({ params }: PageProps) {
                     >
                       <div className="flex items-center gap-2">
                         Student Name
-                        <ArrowUpDown
-                          size={14}
-                          className={
-                            sortField === "name"
-                              ? "text-primary"
-                              : "text-default-400"
-                          }
-                        />
+                        <ArrowUpDown size={14} className={sortField === "name" ? "text-primary" : "text-default-400"} />
                       </div>
                     </th>
-                    <th className="text-left py-3 px-4 font-semibold">
-                      Student ID
-                    </th>
+                    <th className="text-left py-3 px-4 font-semibold">Student ID</th>
                     <th
                       className="text-right py-3 px-4 font-semibold cursor-pointer hover:bg-default-100 transition-colors"
                       onClick={() => handleSort("score")}
                     >
                       <div className="flex items-center justify-end gap-2">
                         Score
-                        <ArrowUpDown
-                          size={14}
-                          className={
-                            sortField === "score"
-                              ? "text-primary"
-                              : "text-default-400"
-                          }
-                        />
+                        <ArrowUpDown size={14} className={sortField === "score" ? "text-primary" : "text-default-400"} />
                       </div>
                     </th>
                   </tr>
@@ -642,20 +550,12 @@ export default function CaseClassOverviewPage({ params }: PageProps) {
                         onClick={() => handleStudentClick(student.studentId)}
                       >
                         <td className="py-3 px-4">
-                          <span className="text-primary hover:underline font-medium">
-                            {student.studentName}
-                          </span>
+                          <span className="text-primary hover:underline font-medium">{student.studentName}</span>
                         </td>
-                        <td className="py-3 px-4 text-default-600">
-                          {student.studentNumber}
-                        </td>
+                        <td className="py-3 px-4 text-default-600">{student.studentNumber}</td>
                         <td className="py-3 px-4 text-right">
                           {score !== null ? (
-                            <Chip
-                              size="sm"
-                              color={isBelowThreshold ? "danger" : "success"}
-                              variant="flat"
-                            >
+                            <Chip size="sm" color={isBelowThreshold ? "danger" : "success"} variant="flat">
                               {score}
                             </Chip>
                           ) : (
@@ -674,7 +574,7 @@ export default function CaseClassOverviewPage({ params }: PageProps) {
         </CardBody>
       </Card>
 
-      {/* SECONDARY BLOCK: Class Trend */}
+      {/* Class Trend Card */}
       <Card className="mb-6">
         <CardHeader className="pb-0 pt-3 px-4">
           <div className="flex items-center justify-between w-full">
@@ -690,7 +590,7 @@ export default function CaseClassOverviewPage({ params }: PageProps) {
         </CardBody>
       </Card>
 
-      {/* TERTIARY BLOCK: Process & Learning Analytics (Collapsed by default) */}
+      {/* Process Analytics Card */}
       <Card>
         <CardHeader
           className="cursor-pointer hover:bg-default-50 transition-colors"
@@ -701,17 +601,8 @@ export default function CaseClassOverviewPage({ params }: PageProps) {
               <Clock size={18} className="text-default-400" />
               Process & Learning Analytics
             </h2>
-            <Button
-              isIconOnly
-              variant="light"
-              size="sm"
-              onPress={() => setAnalyticsExpanded(!analyticsExpanded)}
-            >
-              {analyticsExpanded ? (
-                <ChevronUp size={18} />
-              ) : (
-                <ChevronDown size={18} />
-              )}
+            <Button isIconOnly variant="light" size="sm" onPress={() => setAnalyticsExpanded(!analyticsExpanded)}>
+              {analyticsExpanded ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
             </Button>
           </div>
         </CardHeader>
@@ -719,9 +610,7 @@ export default function CaseClassOverviewPage({ params }: PageProps) {
         {analyticsExpanded && processAnalytics && (
           <CardBody className="pt-0">
             <Divider className="mb-4" />
-
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {/* Time Analytics */}
               <div>
                 <h3 className="font-medium mb-3 flex items-center gap-2">
                   <Clock size={16} className="text-default-400" />
@@ -730,21 +619,17 @@ export default function CaseClassOverviewPage({ params }: PageProps) {
                 <div className="space-y-2">
                   <div className="flex justify-between">
                     <span className="text-default-500">Average</span>
-                    <span className="font-medium">
-                      {processAnalytics.avgTimeMinutes} min
-                    </span>
+                    <span className="font-medium">{processAnalytics.avgTimeMinutes} min</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-default-500">Min / Max</span>
                     <span className="font-medium">
-                      {processAnalytics.minTimeMinutes} /{" "}
-                      {processAnalytics.maxTimeMinutes} min
+                      {processAnalytics.minTimeMinutes} / {processAnalytics.maxTimeMinutes} min
                     </span>
                   </div>
                 </div>
               </div>
 
-              {/* Message Analytics */}
               <div>
                 <h3 className="font-medium mb-3 flex items-center gap-2">
                   <MessageSquare size={16} className="text-default-400" />
@@ -753,50 +638,15 @@ export default function CaseClassOverviewPage({ params }: PageProps) {
                 <div className="space-y-2">
                   <div className="flex justify-between">
                     <span className="text-default-500">Average</span>
-                    <span className="font-medium">
-                      {processAnalytics.avgMessageCount} messages
-                    </span>
+                    <span className="font-medium">{processAnalytics.avgMessageCount} messages</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-default-500">Min / Max</span>
                     <span className="font-medium">
-                      {processAnalytics.minMessageCount} /{" "}
-                      {processAnalytics.maxMessageCount} messages
+                      {processAnalytics.minMessageCount} / {processAnalytics.maxMessageCount} messages
                     </span>
                   </div>
                 </div>
-              </div>
-            </div>
-
-            {/* Question Themes */}
-            <div className="mt-6">
-              <h3 className="font-medium mb-3">Top Question Themes</h3>
-              <p className="text-xs text-default-400 mb-3">
-                TODO: Implement NLP pipeline for question theme extraction
-              </p>
-              <div className="space-y-2">
-                {processAnalytics.topQuestionThemes.map((theme, idx) => (
-                  <div
-                    key={theme.theme}
-                    className="flex items-center gap-3"
-                  >
-                    <span className="text-default-400 w-6">{idx + 1}.</span>
-                    <div className="flex-1">
-                      <div className="flex justify-between mb-1">
-                        <span className="text-sm">{theme.theme}</span>
-                        <span className="text-sm text-default-500">
-                          {theme.percentage}%
-                        </span>
-                      </div>
-                      <div className="h-2 bg-default-100 rounded-full overflow-hidden">
-                        <div
-                          className="h-full bg-primary rounded-full"
-                          style={{ width: `${theme.percentage}%` }}
-                        />
-                      </div>
-                    </div>
-                  </div>
-                ))}
               </div>
             </div>
           </CardBody>

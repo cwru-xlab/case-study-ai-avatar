@@ -10,15 +10,34 @@ import { Select, SelectItem } from "@heroui/select";
 import { Spinner } from "@heroui/spinner";
 import { Search, X, Users, User } from "lucide-react";
 import {
-  searchSections,
-  searchStudents,
-  searchCases,
   TIME_RANGE_OPTIONS,
   type CourseSection,
   type Student,
   type Case,
   type TimeRangeOption,
 } from "@/lib/student-history-service";
+
+async function fetchSearchSections(query: string): Promise<CourseSection[]> {
+  const res = await fetch(`/api/student-history/search-sections?query=${encodeURIComponent(query)}`);
+  if (!res.ok) throw new Error("Failed to search sections");
+  return res.json();
+}
+
+async function fetchSearchStudents(query: string, sectionId?: string): Promise<Student[]> {
+  const params = new URLSearchParams({ query });
+  if (sectionId) params.set("sectionId", sectionId);
+  const res = await fetch(`/api/student-history/search-students?${params}`);
+  if (!res.ok) throw new Error("Failed to search students");
+  return res.json();
+}
+
+async function fetchSearchCases(query: string, sectionId?: string): Promise<Case[]> {
+  const params = new URLSearchParams({ query });
+  if (sectionId) params.set("sectionId", sectionId);
+  const res = await fetch(`/api/student-history/search-cases?${params}`);
+  if (!res.ok) throw new Error("Failed to search cases");
+  return res.json();
+}
 
 type ViewMode = "class" | "individual";
 
@@ -201,7 +220,7 @@ function ClassOverviewTab() {
   const [selectedSection, setSelectedSection] = useState<CourseSection | null>(null);
 
   const searchSectionsWrapper = useCallback(async (query: string) => {
-    return searchSections(query);
+    return fetchSearchSections(query);
   }, []);
 
   const handleViewClass = () => {
@@ -271,19 +290,19 @@ function IndividualStudentTab() {
   };
 
   const searchSectionsWrapper = useCallback(async (query: string) => {
-    return searchSections(query);
+    return fetchSearchSections(query);
   }, []);
 
   const searchStudentsWrapper = useCallback(
     async (query: string) => {
-      return searchStudents(query, selectedSection?.id);
+      return fetchSearchStudents(query, selectedSection?.id);
     },
     [selectedSection?.id]
   );
 
   const searchCasesWrapper = useCallback(
     async (query: string) => {
-      return searchCases(query, selectedSection?.id);
+      return fetchSearchCases(query, selectedSection?.id);
     },
     [selectedSection?.id]
   );

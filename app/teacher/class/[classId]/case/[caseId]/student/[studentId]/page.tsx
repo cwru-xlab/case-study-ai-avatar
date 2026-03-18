@@ -20,16 +20,33 @@ import {
   ChevronRight,
   Calendar,
 } from "lucide-react";
-import {
-  getStudentHistoryDetail,
-  getStudentOverview,
-  getTimeUsageDetails,
-  getConversationDetails,
-  getScoreDetails,
-  getLearningCurveDetails,
-  type StudentHistoryDetail,
-  type StudentOverviewData,
+import type {
+  StudentHistoryDetail,
+  StudentOverviewData,
 } from "@/lib/student-history-service";
+
+async function fetchStudentHistoryDetail(
+  sectionId: string,
+  studentId: string,
+  caseId: string
+): Promise<StudentHistoryDetail | null> {
+  const res = await fetch(
+    `/api/student-history/detail/${sectionId}/${studentId}/${caseId}?range=last_30_days`
+  );
+  if (!res.ok) return null;
+  return res.json();
+}
+
+async function fetchStudentOverview(
+  sectionId: string,
+  studentId: string
+): Promise<StudentOverviewData | null> {
+  const res = await fetch(
+    `/api/student-history/overview/${sectionId}/${studentId}`
+  );
+  if (!res.ok) return null;
+  return res.json();
+}
 
 interface PageProps {
   params: Promise<{
@@ -364,8 +381,8 @@ export default function StudentDetailPage({ params }: PageProps) {
       setError(null);
       try {
         const [caseDetail, overview] = await Promise.all([
-          getStudentHistoryDetail(classId, studentId, caseId, "last_30_days"),
-          getStudentOverview(classId, studentId),
+          fetchStudentHistoryDetail(classId, studentId, caseId),
+          fetchStudentOverview(classId, studentId),
         ]);
 
         if (!caseDetail && !overview) {

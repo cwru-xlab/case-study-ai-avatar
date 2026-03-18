@@ -14,6 +14,9 @@ model Student {
   studentNumber String?
   createdAt     DateTime @default(now())
 
+  cohortId String?
+  cohort   Cohort? @relation(fields: [cohortId], references: [id])
+
   assignments CaseAssignment[]
   attempts    Attempt[]
 }
@@ -26,6 +29,8 @@ model Cohort {
   year      Int?
   term      String?
   createdAt DateTime @default(now())
+
+  students Student[]
 
   assignments CaseAssignment[]
 }
@@ -43,10 +48,10 @@ model Case {
 }
 
 model CaseAssignment {
-  id        String   @id @default(uuid())
-  studentId String
-  caseId    String
-  cohortId  String?
+  id         String   @id @default(uuid())
+  studentId  String
+  caseId     String
+  cohortId   String?
   assignedAt DateTime @default(now())
 
   student Student @relation(fields: [studentId], references: [id])

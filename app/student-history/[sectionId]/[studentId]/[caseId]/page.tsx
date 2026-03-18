@@ -29,15 +29,39 @@ import {
   ChevronRight,
 } from "lucide-react";
 import {
-  getStudentHistoryDetail,
-  getTimeUsageDetails,
-  getConversationDetails,
-  getScoreDetails,
-  getLearningCurveDetails,
   type StudentHistoryDetail,
   type TimeRangeOption,
   TIME_RANGE_OPTIONS,
 } from "@/lib/student-history-service";
+
+async function fetchStudentHistoryDetail(
+  sectionId: string,
+  studentId: string,
+  caseId: string,
+  timeRange: TimeRangeOption
+): Promise<StudentHistoryDetail | null> {
+  const res = await fetch(
+    `/api/student-history/detail/${sectionId}/${studentId}/${caseId}?range=${timeRange}`
+  );
+  if (!res.ok) return null;
+  return res.json();
+}
+
+async function fetchModuleDetails(
+  sectionId: string,
+  studentId: string,
+  caseId: string,
+  module: string,
+  attemptNumber?: number
+) {
+  const params = new URLSearchParams({ module });
+  if (attemptNumber) params.set("attemptNumber", String(attemptNumber));
+  const res = await fetch(
+    `/api/student-history/detail/${sectionId}/${studentId}/${caseId}?${params}`
+  );
+  if (!res.ok) throw new Error("Failed to fetch module details");
+  return res.json();
+}
 
 interface PageProps {
   params: Promise<{
@@ -156,7 +180,7 @@ export default function StudentHistoryDetailPage({ params }: PageProps) {
       setLoading(true);
       setError(null);
       try {
-        const result = await getStudentHistoryDetail(
+        const result = await fetchStudentHistoryDetail(
           sectionId,
           studentId,
           caseId,
@@ -187,31 +211,13 @@ export default function StudentHistoryDetailPage({ params }: PageProps) {
     setModalData(null);
 
     try {
-      let result;
-      switch (moduleType) {
-        case "time":
-          result = await getTimeUsageDetails(
-            sectionId,
-            studentId,
-            caseId,
-            selectedAttempt || undefined
-          );
-          break;
-        case "conversations":
-          result = await getConversationDetails(
-            sectionId,
-            studentId,
-            caseId,
-            selectedAttempt || undefined
-          );
-          break;
-        case "score":
-          result = await getScoreDetails(sectionId, studentId, caseId);
-          break;
-        case "learning":
-          result = await getLearningCurveDetails(sectionId, studentId, caseId);
-          break;
-      }
+      const result = await fetchModuleDetails(
+        sectionId,
+        studentId,
+        caseId,
+        moduleType,
+        selectedAttempt || undefined
+      );
       setModalData(result);
     } catch (err) {
       console.error("Failed to load modal data:", err);
