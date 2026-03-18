@@ -25,11 +25,14 @@ import {
   CheckCircle,
   Clock,
   XCircle,
+  ClipboardList,
 } from "lucide-react";
 import { addToast } from "@heroui/toast";
 import { title as pageTitle } from "@/components/primitives";
 import { cohortStorage } from "@/lib/cohort-storage";
+import { caseStorage } from "@/lib/case-storage";
 import type { CachedCohort, CohortStudent } from "@/types/cohort";
+import type { CaseStudy } from "@/types";
 
 type StudentStatus = CohortStudent["status"];
 
@@ -79,6 +82,46 @@ export default function CohortLearnersPage() {
   const [showRemoveModal, setShowRemoveModal] = useState(false);
   const [learnerToRemove, setLearnerToRemove] = useState<CohortStudent | null>(null);
   const [removingLearner, setRemovingLearner] = useState(false);
+
+  // Progress overview modal
+  const [showProgressModal, setShowProgressModal] = useState(false);
+  const [assignedCases, setAssignedCases] = useState<CaseStudy[]>([]);
+  const [loadingCases, setLoadingCases] = useState(false);
+  const [mockProgress, setMockProgress] = useState<Record<string, Record<string, "completed" | "in_progress" | "not_started">>>({});
+
+  const generateMockProgress = (students: CohortStudent[], cases: CaseStudy[]) => {
+    const statuses: Array<"completed" | "in_progress" | "not_started"> = [
+      "completed", "in_progress", "not_started",
+    ];
+    const progress: Record<string, Record<string, "completed" | "in_progress" | "not_started">> = {};
+    for (const student of students) {
+      progress[student.email] = {};
+      for (const c of cases) {
+        progress[student.email][c.id] = statuses[Math.floor(Math.random() * statuses.length)];
+      }
+    }
+    return progress;
+  };
+
+  const handleOpenProgress = async () => {
+    setShowProgressModal(true);
+    if (assignedCases.length > 0) return;
+
+    setLoadingCases(true);
+    try {
+      const allCases = await caseStorage.list();
+      const ids = new Set(cohort?.assignedCaseIds || []);
+      const matched = allCases.filter((c) => ids.has(c.id));
+      setAssignedCases(matched);
+      if (cohort?.students) {
+        setMockProgress(generateMockProgress(cohort.students, matched));
+      }
+    } catch {
+      addToast({ title: "Failed to load cases", color: "danger" });
+    } finally {
+      setLoadingCases(false);
+    }
+  };
 
   useEffect(() => {
     loadCohort();
@@ -325,6 +368,15 @@ export default function CohortLearnersPage() {
           <Button
             variant="bordered"
             size="sm"
+            startContent={<ClipboardList className="w-4 h-4" />}
+            onPress={handleOpenProgress}
+            isDisabled={!cohort.students?.length || !cohort.assignedCaseIds?.length}
+          >
+            Progress Overview
+          </Button>
+          <Button
+            variant="bordered"
+            size="sm"
             startContent={<RefreshCw className="w-4 h-4" />}
             onPress={loadCohort}
           >
@@ -559,6 +611,98 @@ export default function CohortLearnersPage() {
               onPress={handleRemoveLearner}
             >
               {removingLearner ? "Removing..." : "Remove"}
+            </Button>
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
+
+      {/* Progress Overview Modal */}
+      <Modal
+        isOpen={showProgressModal}
+        onClose={() => setShowProgressModal(false)}
+        size="5xl"
+        scrollBehavior="inside"
+      >
+        <ModalContent>
+          <ModalHeader className="flex flex-col gap-1">
+            <div className="flex items-center gap-2">
+              <ClipboardList className="w-5 h-5" />
+              <span>Progress Overview</span>
+            </div>
+            <p className="text-sm font-normal text-default-500">
+              Case completion status for each learner (mock data)
+            </p>
+          </ModalHeader>
+          <ModalBody>
+            {loadingCases ? (
+              <div className="text-center py-8">
+                <p className="text-default-500">Loading cases...</p>
+              </div>
+            ) : assignedCases.length === 0 ? (
+              <div className="text-center py-8">
+                <p className="text-default-500">No cases assigned to this cohort.</p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm border-collapse">
+                  <thead>
+                    <tr className="bg-default-100">
+                      <th className="text-left p-3 font-medium sticky left-0 bg-default-100 z-10 min-w-[200px]">
+                        Learner
+                      </th>
+                      {assignedCases.map((c) => (
+                        <th
+                          key={c.id}
+                          className="text-center p-3 font-medium min-w-[140px]"
+                        >
+                          <span className="line-clamp-2">{c.name}</span>
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-default-200">
+                    {cohort?.students?.map((student) => (
+                      <tr key={student.email} className="hover:bg-default-50">
+                        <td className="p-3 sticky left-0 bg-content1 z-10">
+                          <div>
+                            <p className="font-medium text-sm">
+                              {student.name || student.email}
+                            </p>
+                            {student.name && (
+                              <p className="text-xs text-default-400">{student.email}</p>
+                            )}
+                          </div>
+                        </td>
+                        {assignedCases.map((c) => {
+                          const status = mockProgress[student.email]?.[c.id] || "not_started";
+                          return (
+                            <td key={c.id} className="p-3 text-center">
+                              {status === "completed" ? (
+                                <Chip size="sm" color="success" variant="flat" startContent={<CheckCircle className="w-3 h-3" />}>
+                                  Done
+                                </Chip>
+                              ) : status === "in_progress" ? (
+                                <Chip size="sm" color="warning" variant="flat" startContent={<Clock className="w-3 h-3" />}>
+                                  In Progress
+                                </Chip>
+                              ) : (
+                                <Chip size="sm" color="default" variant="flat" startContent={<XCircle className="w-3 h-3" />}>
+                                  Not Started
+                                </Chip>
+                              )}
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </ModalBody>
+          <ModalFooter>
+            <Button variant="bordered" onPress={() => setShowProgressModal(false)}>
+              Close
             </Button>
           </ModalFooter>
         </ModalContent>
