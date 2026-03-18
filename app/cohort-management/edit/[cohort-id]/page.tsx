@@ -648,6 +648,7 @@ export default function CohortEditPage() {
                             variant="light"
                             color="primary"
                             isIconOnly
+                            onPress={() => toggleCaseAssignment(caseItem.id)}
                           >
                             <Plus className="w-4 h-4" />
                           </Button>
