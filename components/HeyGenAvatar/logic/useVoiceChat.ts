@@ -1,50 +1,32 @@
 import { useCallback } from "react";
-
 import { useStreamingAvatarContext } from "./context";
 
 export const useVoiceChat = () => {
-  const {
-    avatarRef,
-    isMuted,
-    setIsMuted,
-    isVoiceChatActive,
-    setIsVoiceChatActive,
-    isVoiceChatLoading,
-    setIsVoiceChatLoading,
-  } = useStreamingAvatarContext();
+  const { sessionRef, isMuted, isVoiceChatLoading, isVoiceChatActive } =
+    useStreamingAvatarContext();
 
   const startVoiceChat = useCallback(
-    async (isInputAudioMuted?: boolean) => {
-      if (!avatarRef.current) return;
-      setIsVoiceChatLoading(true);
-      await avatarRef.current?.startVoiceChat({
-        isInputAudioMuted,
-      });
-      setIsVoiceChatLoading(false);
-      setIsVoiceChatActive(true);
-      setIsMuted(!!isInputAudioMuted);
+    async (_isInputAudioMuted?: boolean) => {
+      if (!sessionRef.current) return;
+      await sessionRef.current.voiceChat.start();
     },
-    [avatarRef, setIsMuted, setIsVoiceChatActive, setIsVoiceChatLoading],
+    [sessionRef],
   );
 
   const stopVoiceChat = useCallback(() => {
-    if (!avatarRef.current) return;
-    avatarRef.current?.closeVoiceChat();
-    setIsVoiceChatActive(false);
-    setIsMuted(true);
-  }, [avatarRef, setIsMuted, setIsVoiceChatActive]);
+    if (!sessionRef.current) return;
+    sessionRef.current.voiceChat.stop();
+  }, [sessionRef]);
 
-  const muteInputAudio = useCallback(() => {
-    if (!avatarRef.current) return;
-    avatarRef.current?.muteInputAudio();
-    setIsMuted(true);
-  }, [avatarRef, setIsMuted]);
+  const muteInputAudio = useCallback(async () => {
+    if (!sessionRef.current) return;
+    await sessionRef.current.voiceChat.mute();
+  }, [sessionRef]);
 
-  const unmuteInputAudio = useCallback(() => {
-    if (!avatarRef.current) return;
-    avatarRef.current?.unmuteInputAudio();
-    setIsMuted(false);
-  }, [avatarRef, setIsMuted]);
+  const unmuteInputAudio = useCallback(async () => {
+    if (!sessionRef.current) return;
+    await sessionRef.current.voiceChat.unmute();
+  }, [sessionRef]);
 
   return {
     startVoiceChat,
