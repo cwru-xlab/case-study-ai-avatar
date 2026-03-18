@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
 import { s3Storage } from "@/lib/s3-client";
 
 export async function GET(request: NextRequest) {
@@ -9,77 +8,100 @@ export async function GET(request: NextRequest) {
 
     if (!email) {
       return NextResponse.json(
-        { error: "Missing email parameter" },
+        { error: "Email parameter is required" },
         { status: 400 }
       );
     }
 
-    const student = await prisma.student.findUnique({
-      where: { email },
-      include: {
-        assignments: {
-          include: {
-            cohort: true,
-          },
-        },
-        attempts: true,
-      },
+    const normalizedEmail = email.trim().toLowerCase();
+
+    // Get all cohorts
+    const cohorts = await s3Storage.listCohorts();
+
+    console.log(`[Student Cases API] Looking for cohorts for email: ${normalizedEmail}`);
+    console.log(`[Student Cases API] Total cohorts found: ${cohorts.length}`);
+
+    // Find cohorts where this student is a member
+    const studentCohorts = cohorts.filter((cohort) => {
+      if (!cohort.isActive) {
+        console.log(`[Student Cases API] Cohort ${cohort.name} is inactive`);
+        return false;
+      }
+
+      // Check availability
+      if (cohort.availableDate) {
+        const now = new Date();
+        const availDate = new Date(cohort.availableDate);
+        if (now < availDate) {
+          console.log(`[Student Cases API] Cohort ${cohort.name} not yet available`);
+          return false;
+        }
+      }
+
+      // Check expiration
+      if (cohort.expirationDate) {
+        const now = new Date();
+        const expDate = new Date(cohort.expirationDate);
+        if (now > expDate) {
+          console.log(`[Student Cases API] Cohort ${cohort.name} has expired`);
+          return false;
+        }
+      }
+
+      // Check if student is in this cohort
+      const studentEmails = cohort.students?.map(s => s.email.toLowerCase()) || [];
+      console.log(`[Student Cases API] Cohort ${cohort.name} students: ${JSON.stringify(studentEmails)}`);
+      
+      const isInCohort = cohort.students?.some(
+        (s) => s.email.toLowerCase() === normalizedEmail && s.status === "joined"
+      );
+
+      console.log(`[Student Cases API] Is ${normalizedEmail} in cohort ${cohort.name}? ${isInCohort}`);
+
+      return isInCohort;
     });
 
-    if (!student) {
-      return NextResponse.json(
-        { error: "Student not found" },
-        { status: 404 }
-      );
+    // Collect all assigned case IDs from student's cohorts
+    const assignedCaseIds = new Set<string>();
+    const cohortInfo: Record<string, { cohortId: string; cohortName: string }> = {};
+
+    for (const cohort of studentCohorts) {
+      const caseIds = cohort.assignedCaseIds || [];
+      for (const caseId of caseIds) {
+        assignedCaseIds.add(caseId);
+        cohortInfo[caseId] = {
+          cohortId: cohort.id,
+          cohortName: cohort.name,
+        };
+      }
     }
 
-    const caseIds = [...new Set(student.assignments.map((a) => a.caseId))];
-
-    const casesWithDetails = await Promise.all(
-      caseIds.map(async (caseId) => {
-        const caseStudy = await s3Storage.getCase(caseId);
-        const assignment = student.assignments.find((a) => a.caseId === caseId);
-        const caseAttempts = student.attempts.filter((a) => a.caseId === caseId);
-
-        const scores = caseAttempts
-          .map((a) => a.score)
-          .filter((s): s is number => s !== null);
-
-        let status: "not_started" | "in_progress" | "completed" = "not_started";
-        if (caseAttempts.length > 0) {
-          const hasPassingScore = scores.some((s) => s >= 70);
-          status = hasPassingScore ? "completed" : "in_progress";
-        }
-
-        return {
-          id: caseId,
-          name: caseStudy?.name || "Unknown Case",
-          backgroundInfo: caseStudy?.backgroundInfo || "",
-          avatars: caseStudy?.avatars || [],
-          cohortName: assignment?.cohort?.name || "",
-          cohortCode: assignment?.cohort?.code || "",
-          attemptCount: caseAttempts.length,
-          bestScore: scores.length > 0 ? Math.max(...scores) : null,
-          latestScore: scores.length > 0 ? scores[scores.length - 1] : null,
-          status,
-          assignedAt: assignment?.assignedAt.toISOString() || null,
-        };
-      })
-    );
+    // Fetch the actual case details
+    const cases = [];
+    for (const caseId of assignedCaseIds) {
+      const caseData = await s3Storage.getCase(caseId);
+      if (caseData) {
+        cases.push({
+          ...caseData,
+          cohortId: cohortInfo[caseId]?.cohortId,
+          cohortName: cohortInfo[caseId]?.cohortName,
+        });
+      }
+    }
 
     return NextResponse.json({
       success: true,
-      student: {
-        id: student.id,
-        name: student.displayName || student.email.split("@")[0],
-        email: student.email,
-      },
-      cases: casesWithDetails,
+      cases,
+      cohorts: studentCohorts.map((c) => ({
+        id: c.id,
+        name: c.name,
+        assignedCaseIds: c.assignedCaseIds || [],
+      })),
     });
   } catch (error) {
     console.error("Error fetching student cases:", error);
     return NextResponse.json(
-      { error: "Failed to fetch student cases" },
+      { error: "Failed to fetch cases" },
       { status: 500 }
     );
   }
