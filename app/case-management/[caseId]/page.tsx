@@ -123,6 +123,7 @@ export default function CaseDetailPage() {
           name,
           backgroundInfo,
           avatars,
+          cohortIds: [],
           createdBy: userName,
           lastEditedBy: userName,
         });
