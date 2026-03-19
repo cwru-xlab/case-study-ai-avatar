@@ -22,13 +22,8 @@ export const siteConfig = {
     },
     {
       label: "Cohort Management",
-      href: "/cohort-management",
+      href: "/codes",
       icon: "GraduationCap",
-    },
-    {
-      label: "Student History",
-      href: "/student-history",
-      icon: "History",
     },
   ],
   studentNavItems: [

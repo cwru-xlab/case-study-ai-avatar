@@ -17,6 +17,7 @@ import {
   Briefcase,
   History,
   GraduationCap,
+  QrCode,
   LogOut,
   Menu,
   X,
@@ -37,6 +38,7 @@ const iconMap = {
   Briefcase,
   History,
   GraduationCap,
+  QrCode,
 } as const;
 
 export const AuthNavbar = () => {

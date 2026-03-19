@@ -87,9 +87,9 @@ export default function ClassDashboardPage({ params }: PageProps) {
           color="primary"
           variant="flat"
           startContent={<ArrowLeft size={16} />}
-          onPress={() => router.push("/student-history")}
+          onPress={() => router.push("/codes")}
         >
-          Back to Student History
+          Back to Cohorts
         </Button>
       </div>
     );
@@ -103,7 +103,7 @@ export default function ClassDashboardPage({ params }: PageProps) {
           <Button
             variant="light"
             startContent={<ArrowLeft size={16} />}
-            onPress={() => router.push("/student-history")}
+            onPress={() => router.push("/codes")}
           >
             Back
           </Button>
