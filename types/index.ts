@@ -193,12 +193,14 @@ export interface CaseAvatar {
   name: string;
   role: string;
   additionalInfo: string;
+  profileId?: string;
 }
 
 export interface CaseStudy {
   id: string;
   name: string;
   backgroundInfo: string;
+  evaluationPrompt?: string;
   avatars: CaseAvatar[];
   cohortIds: string[];  // Cases are assigned to cohorts (following Alfred's sectionIds pattern)
   createdBy: string;

@@ -13,12 +13,13 @@ import {
   ModalFooter,
   useDisclosure,
 } from "@heroui/modal";
+import { Select, SelectItem } from "@heroui/select";
 import { ArrowLeft, Plus, Save, Trash2, X } from "lucide-react";
 import { addToast } from "@heroui/toast";
 import { title as pageTitle } from "@/components/primitives";
 import { useAuth } from "@/lib/auth-context";
 import { caseStorage } from "@/lib/case-storage";
-import type { CaseStudy, CaseAvatar } from "@/types";
+import type { CaseStudy, CaseAvatar, VideoAudioProfile } from "@/types";
 
 export default function CaseDetailPage() {
   const params = useParams();
@@ -31,8 +32,10 @@ export default function CaseDetailPage() {
 
   const [name, setName] = useState("");
   const [backgroundInfo, setBackgroundInfo] = useState("");
+  const [evaluationPrompt, setEvaluationPrompt] = useState("");
   const [avatars, setAvatars] = useState<CaseAvatar[]>([]);
 
+  const [profiles, setProfiles] = useState<VideoAudioProfile[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -42,6 +45,7 @@ export default function CaseDetailPage() {
   const [originalValues, setOriginalValues] = useState({
     name: "",
     backgroundInfo: "",
+    evaluationPrompt: "",
     avatars: "[]",
   });
 
@@ -60,9 +64,10 @@ export default function CaseDetailPage() {
     return (
       name !== originalValues.name ||
       backgroundInfo !== originalValues.backgroundInfo ||
+      evaluationPrompt !== originalValues.evaluationPrompt ||
       JSON.stringify(avatars) !== originalValues.avatars
     );
-  }, [name, backgroundInfo, avatars, originalValues]);
+  }, [name, backgroundInfo, evaluationPrompt, avatars, originalValues]);
 
   useEffect(() => {
     const loadCase = async () => {
@@ -73,10 +78,12 @@ export default function CaseDetailPage() {
           if (caseData) {
             setName(caseData.name);
             setBackgroundInfo(caseData.backgroundInfo);
+            setEvaluationPrompt(caseData.evaluationPrompt || "");
             setAvatars(caseData.avatars);
             setOriginalValues({
               name: caseData.name,
               backgroundInfo: caseData.backgroundInfo,
+              evaluationPrompt: caseData.evaluationPrompt || "",
               avatars: JSON.stringify(caseData.avatars),
             });
           } else {
@@ -94,6 +101,21 @@ export default function CaseDetailPage() {
     loadCase();
   }, [caseId, isNewCase]);
 
+  useEffect(() => {
+    const loadProfiles = async () => {
+      try {
+        const res = await fetch("/api/profile/list");
+        if (res.ok) {
+          const data = await res.json();
+          setProfiles(data.profiles || []);
+        }
+      } catch (error) {
+        console.error("Failed to load profiles:", error);
+      }
+    };
+    loadProfiles();
+  }, []);
+
   const validateForm = () => {
     const newErrors: Record<string, string> = {};
 
@@ -105,6 +127,10 @@ export default function CaseDetailPage() {
 
     if (!backgroundInfo.trim()) {
       newErrors.backgroundInfo = "Background information is required";
+    }
+
+    if (!evaluationPrompt.trim()) {
+      newErrors.evaluationPrompt = "Evaluation prompt is required";
     }
 
     setErrors(newErrors);
@@ -122,6 +148,7 @@ export default function CaseDetailPage() {
         await caseStorage.add({
           name,
           backgroundInfo,
+          evaluationPrompt: evaluationPrompt || undefined,
           avatars,
           cohortIds: [],
           createdBy: userName,
@@ -137,6 +164,7 @@ export default function CaseDetailPage() {
         await caseStorage.update(caseId, {
           name,
           backgroundInfo,
+          evaluationPrompt: evaluationPrompt || undefined,
           avatars,
           lastEditedBy: userName,
         });
@@ -300,6 +328,21 @@ export default function CaseDetailPage() {
             />
           </div>
 
+          <div>
+            <Textarea
+              isRequired
+              description="Define the criteria for evaluating student interactions with this case"
+              errorMessage={errors.evaluationPrompt}
+              isInvalid={!!errors.evaluationPrompt}
+              label="Evaluation Prompt"
+              maxRows={20}
+              minRows={4}
+              placeholder="Enter the evaluation criteria or prompt for assessing student interactions..."
+              value={evaluationPrompt}
+              onValueChange={setEvaluationPrompt}
+            />
+          </div>
+
           <div className="space-y-4">
             <div className="flex items-center justify-between">
               <div>
@@ -365,6 +408,22 @@ export default function CaseDetailPage() {
                       </Button>
                     </div>
 
+                    <Select
+                      label="Avatar Profile"
+                      placeholder="Select an avatar profile"
+                      selectedKeys={avatar.profileId ? [avatar.profileId] : []}
+                      onSelectionChange={(keys) => {
+                        const selected = Array.from(keys)[0] as string;
+                        updateAvatar(avatar.id, { profileId: selected || undefined });
+                      }}
+                    >
+                      {profiles.map((profile) => (
+                        <SelectItem key={profile.id}>
+                          {profile.name}
+                        </SelectItem>
+                      ))}
+                    </Select>
+
                     <Textarea
                       label="Additional Background Information"
                       maxRows={8}
@@ -390,7 +449,7 @@ export default function CaseDetailPage() {
           <div className="flex gap-3 pt-4 flex-wrap">
             <Button
               color="primary"
-              isDisabled={!name.trim() || !backgroundInfo.trim() || isLoading}
+              isDisabled={!name.trim() || !backgroundInfo.trim() || !evaluationPrompt.trim() || isLoading}
               isLoading={isSaving}
               startContent={!isSaving ? <Save className="w-4 h-4" /> : null}
               onPress={handleSave}
