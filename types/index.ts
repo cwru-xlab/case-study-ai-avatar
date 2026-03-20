@@ -319,3 +319,59 @@ export interface EmailTemplateVars {
   messageCount: number;                 // Number of messages in chat
   chatDuration: string;                 // Formatted chat duration
 }
+
+/**
+ * ==================================================================================
+ * STUDENT INTERACTION LOG TYPES
+ * ==================================================================================
+ *
+ * These types track student interactions within a case study session.
+ * Each attempt is an interaction log that records all role conversations,
+ * timestamps, and evaluation results.
+ */
+
+export interface RoleMessage {
+  role: "user" | "assistant";
+  content: string;
+  timestamp: number;
+}
+
+export interface RoleInteraction {
+  roleId: string;
+  roleName: string;
+  messages: RoleMessage[];
+  enteredAt: number;
+  exitedAt?: number;
+}
+
+export interface InteractionEvent {
+  type: "enter_role" | "exit_role" | "send_message" | "receive_message" | "start_session" | "end_session";
+  roleId?: string;
+  roleName?: string;
+  timestamp: number;
+  messageContent?: string;
+  messageRole?: "user" | "assistant";
+}
+
+export interface InteractionLog {
+  id: string;
+  studentEmail: string;
+  studentName: string;
+  caseId: string;
+  caseName: string;
+  cohortId: string;
+  attemptNumber: number;
+  mode: "explore" | "assessed";
+  status: "in_progress" | "completed";
+  roleInteractions: Record<string, RoleInteraction>;
+  events: InteractionEvent[];
+  startedAt: number;
+  lastSavedAt: number;
+  completedAt?: number;
+  totalMessages: number;
+  totalTimeSeconds: number;
+  evalScore?: number;
+  evalResult?: string;
+  createdAt: string;
+  updatedAt: string;
+}

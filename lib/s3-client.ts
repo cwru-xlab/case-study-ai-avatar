@@ -27,7 +27,7 @@ import {
 import { gzip, gunzip } from "zlib";
 import { promisify } from "util";
 import type { Avatar, VersionManifest, AvatarVersion } from "./avatar-storage";
-import type { ChatSession, ChatMessage, ChatSessionMetadata, VideoAudioProfile, CaseStudy } from "@/types";
+import type { ChatSession, ChatMessage, ChatSessionMetadata, VideoAudioProfile, CaseStudy, InteractionLog } from "@/types";
 import type { Cohort } from "@/types/cohort";
 
 // S3 client configuration - shared between avatar and chat storage
@@ -61,6 +61,10 @@ const CASE_INDEX_FILE = `${CASES_PREFIX}index.json`;
 // Cohort storage prefix and index
 const COHORTS_PREFIX = "cohorts/";
 const COHORT_INDEX_FILE = `${COHORTS_PREFIX}index.json`;
+
+// Interaction log storage prefix
+// Structure: interactions/{studentEmail}/{caseId}/{logId}.json
+const INTERACTIONS_PREFIX = "interactions/";
 
 // Global compression switch for chat sessions
 const ENABLE_CHAT_COMPRESSION =
@@ -1344,6 +1348,141 @@ export class S3AvatarStorage {
       ContentType: "application/json",
     });
     await s3Client.send(command);
+  }
+
+  /**
+   * ==================================================================================
+   * INTERACTION LOG STORAGE METHODS
+   * ==================================================================================
+   *
+   * Storage Structure:
+   * interactions/{studentEmail}/{caseId}/{logId}.json
+   * interactions/{studentEmail}/{caseId}/index.json - list of logs for quick lookup
+   */
+
+  private getInteractionKey(studentEmail: string, caseId: string, logId: string): string {
+    const safeEmail = studentEmail.toLowerCase().replace(/[^a-z0-9@._-]/g, "_");
+    return `${INTERACTIONS_PREFIX}${safeEmail}/${caseId}/${logId}.json`;
+  }
+
+  private getInteractionIndexKey(studentEmail: string, caseId: string): string {
+    const safeEmail = studentEmail.toLowerCase().replace(/[^a-z0-9@._-]/g, "_");
+    return `${INTERACTIONS_PREFIX}${safeEmail}/${caseId}/index.json`;
+  }
+
+  async saveInteractionLog(log: InteractionLog): Promise<void> {
+    const key = this.getInteractionKey(log.studentEmail, log.caseId, log.id);
+    const command = new PutObjectCommand({
+      Bucket: BUCKET_NAME,
+      Key: key,
+      Body: JSON.stringify(log, null, 2),
+      ContentType: "application/json",
+    });
+    await s3Client.send(command);
+
+    // Update the index
+    const indexKey = this.getInteractionIndexKey(log.studentEmail, log.caseId);
+    let index = await this.readInteractionIndex(log.studentEmail, log.caseId);
+    index = index.filter((entry) => entry.id !== log.id);
+    index.push({
+      id: log.id,
+      attemptNumber: log.attemptNumber,
+      mode: log.mode,
+      status: log.status,
+      startedAt: log.startedAt,
+      completedAt: log.completedAt,
+      totalMessages: log.totalMessages,
+      totalTimeSeconds: log.totalTimeSeconds,
+      evalScore: log.evalScore,
+      updatedAt: log.updatedAt,
+    });
+    index.sort((a, b) => b.startedAt - a.startedAt);
+
+    const indexCommand = new PutObjectCommand({
+      Bucket: BUCKET_NAME,
+      Key: indexKey,
+      Body: JSON.stringify(index, null, 2),
+      ContentType: "application/json",
+    });
+    await s3Client.send(indexCommand);
+  }
+
+  async getInteractionLog(studentEmail: string, caseId: string, logId: string): Promise<InteractionLog | null> {
+    try {
+      const key = this.getInteractionKey(studentEmail, caseId, logId);
+      const command = new GetObjectCommand({
+        Bucket: BUCKET_NAME,
+        Key: key,
+      });
+      const response = await s3Client.send(command);
+      if (!response.Body) return null;
+      const content = await response.Body.transformToString();
+      return JSON.parse(content) as InteractionLog;
+    } catch (error: any) {
+      if (error.name === "NoSuchKey" || error.$metadata?.httpStatusCode === 404) {
+        return null;
+      }
+      console.error(`Failed to get interaction log:`, error);
+      return null;
+    }
+  }
+
+  async listInteractionLogs(
+    studentEmail: string,
+    caseId: string
+  ): Promise<Array<{
+    id: string;
+    attemptNumber: number;
+    mode: string;
+    status: string;
+    startedAt: number;
+    completedAt?: number;
+    totalMessages: number;
+    totalTimeSeconds: number;
+    evalScore?: number;
+    updatedAt: string;
+  }>> {
+    return this.readInteractionIndex(studentEmail, caseId);
+  }
+
+  private async readInteractionIndex(
+    studentEmail: string,
+    caseId: string
+  ): Promise<Array<{
+    id: string;
+    attemptNumber: number;
+    mode: string;
+    status: string;
+    startedAt: number;
+    completedAt?: number;
+    totalMessages: number;
+    totalTimeSeconds: number;
+    evalScore?: number;
+    updatedAt: string;
+  }>> {
+    try {
+      const key = this.getInteractionIndexKey(studentEmail, caseId);
+      const command = new GetObjectCommand({
+        Bucket: BUCKET_NAME,
+        Key: key,
+      });
+      const response = await s3Client.send(command);
+      if (!response.Body) return [];
+      const content = await response.Body.transformToString();
+      return JSON.parse(content);
+    } catch (error: any) {
+      if (error.name === "NoSuchKey" || error.$metadata?.httpStatusCode === 404) {
+        return [];
+      }
+      throw error;
+    }
+  }
+
+  async getNextAttemptNumber(studentEmail: string, caseId: string): Promise<number> {
+    const logs = await this.listInteractionLogs(studentEmail, caseId);
+    const assessedLogs = logs.filter((l) => l.mode === "assessed");
+    if (assessedLogs.length === 0) return 1;
+    return Math.max(...assessedLogs.map((l) => l.attemptNumber)) + 1;
   }
 }
 

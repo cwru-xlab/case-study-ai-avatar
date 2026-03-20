@@ -70,6 +70,7 @@ export default function CodeEditPage() {
   const [createdAccessCode, setCreatedAccessCode] = useState("");
   const [createdJoinLink, setCreatedJoinLink] = useState("");
 
+  const [sendingInvitations, setSendingInvitations] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   const joinLink = useMemo(() => {
@@ -268,6 +269,40 @@ export default function CodeEditPage() {
       addToast({ title: "Save failed", description: msg, color: "danger" });
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleSendInvitations = async () => {
+    if (!existing) return;
+    const invitedEmails = existing.students
+      ?.filter((s) => s.status === "invited")
+      .map((s) => s.email) || [];
+
+    if (invitedEmails.length === 0) {
+      addToast({ title: "No invited students to send emails to", color: "warning" });
+      return;
+    }
+
+    setSendingInvitations(true);
+    try {
+      const res = await fetch("/api/cohort/send-invitations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cohortId: existing.id, emails: invitedEmails }),
+      });
+
+      if (!res.ok) throw new Error("Failed to send invitations");
+      const data = await res.json();
+      addToast({
+        title: `Sent ${data.sentCount} invitation(s)`,
+        description: data.failedCount > 0 ? `${data.failedCount} failed` : undefined,
+        color: data.failedCount > 0 ? "warning" : "success",
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Failed to send invitations";
+      addToast({ title: msg, color: "danger" });
+    } finally {
+      setSendingInvitations(false);
     }
   };
 
@@ -619,15 +654,27 @@ export default function CodeEditPage() {
             Cancel
           </Button>
           {!isNew && existing && (
-            <Button
-              color="danger"
-              variant="flat"
-              isLoading={deleting}
-              startContent={!deleting ? <Trash2 className="w-4 h-4" /> : null}
-              onPress={handleDelete}
-            >
-              Delete
-            </Button>
+            <>
+              {accessMode === "specific" && (
+                <Button
+                  color="secondary"
+                  variant="flat"
+                  isLoading={sendingInvitations}
+                  onPress={handleSendInvitations}
+                >
+                  {sendingInvitations ? "Sending..." : "Send Invitation Emails"}
+                </Button>
+              )}
+              <Button
+                color="danger"
+                variant="flat"
+                isLoading={deleting}
+                startContent={!deleting ? <Trash2 className="w-4 h-4" /> : null}
+                onPress={handleDelete}
+              >
+                Delete
+              </Button>
+            </>
           )}
         </div>
       </div>

@@ -153,13 +153,18 @@ const ADMIN_ROUTES = [
   "/api/case/add",
   "/api/case/edit",
   "/api/case/delete",
-  "/api/case/get",
-  "/api/case/list",
   // Student History routes
   "/student-history",
   // Cohort management
   "/cohort-management",
-  "/api/cohort",
+  "/api/cohort/add",
+  "/api/cohort/edit",
+  "/api/cohort/delete",
+  "/api/cohort/list",
+  "/api/cohort/send-invitations",
+  // Codes management (admin views)
+  "/codes",
+  "/api/codes",
   // Teacher Class Overview routes
   "/teacher",
 ];
@@ -195,6 +200,8 @@ const KIOSK_ROUTES: string[] = [
 const STUDENT_ROUTES: string[] = [
   "/student-cases",
   "/api/student/cases",
+  "/case-play",
+  "/api/interaction",
 ];
 
 /**

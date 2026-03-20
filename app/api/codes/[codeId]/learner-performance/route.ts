@@ -1,7 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { s3Storage } from "@/lib/s3-client";
-import { caseStorage } from "@/lib/case-storage";
-import { prisma } from "@/lib/prisma";
 
 export async function GET(
   request: NextRequest,
@@ -28,29 +26,7 @@ export async function GET(
 
     const studentEmails = students.map((s) => s.email.toLowerCase());
 
-    let dbStudents: any[] = [];
-    try {
-      dbStudents = await prisma.student.findMany({
-        where: {
-          email: { in: studentEmails, mode: "insensitive" },
-        },
-        include: {
-          attempts: {
-            where: {
-              caseId: { in: assignedCaseIds },
-            },
-            select: {
-              caseId: true,
-              score: true,
-              submittedAt: true,
-            },
-          },
-        },
-      });
-    } catch (dbError) {
-      console.log("Database not available, using mock data");
-    }
-
+    // Look up interaction logs from S3 for all students
     const performance: Record<
       string,
       {
@@ -62,42 +38,22 @@ export async function GET(
     > = {};
 
     for (const email of studentEmails) {
-      const dbStudent = dbStudents.find(
-        (s) => s.email.toLowerCase() === email.toLowerCase()
-      );
-
-      if (!dbStudent || dbStudent.attempts.length === 0) {
-        const mockCompleted = Math.floor(Math.random() * (assignedCaseIds.length + 1));
-        const mockBestScore = mockCompleted > 0 ? 65 + Math.floor(Math.random() * 30) : null;
-        const mockAvgScore = mockCompleted > 0 ? 60 + Math.floor(Math.random() * 25) : null;
-        
-        performance[email] = {
-          assignedCases: assignedCaseIds.length,
-          completedCases: mockCompleted,
-          bestScore: mockBestScore,
-          avgScore: mockAvgScore,
-        };
-        continue;
-      }
-
-      const completedAttempts = dbStudent.attempts.filter(
-        (a: any) => a.submittedAt !== null && a.score !== null
-      );
-
-      const completedCaseIds = new Set(
-        completedAttempts.map((a: any) => a.caseId)
-      );
-
+      // Check S3 for interaction logs for this student across assigned cases
+      let completedCaseCount = 0;
       const bestScoresByCase: Record<string, number> = {};
-      for (const attempt of completedAttempts) {
-        if (attempt.score !== null) {
-          const caseId = attempt.caseId;
-          if (
-            !bestScoresByCase[caseId] ||
-            attempt.score > bestScoresByCase[caseId]
-          ) {
-            bestScoresByCase[caseId] = attempt.score;
+
+      for (const caseId of assignedCaseIds) {
+        try {
+          const logs = await s3Storage.listInteractionLogs(email, caseId);
+          const completedLogs = logs.filter((log: any) => log.status === "completed" && log.evalScore !== undefined && log.evalScore !== null);
+
+          if (completedLogs.length > 0) {
+            completedCaseCount++;
+            const bestScore = Math.max(...completedLogs.map((l: any) => l.evalScore as number));
+            bestScoresByCase[caseId] = bestScore;
           }
+        } catch {
+          // No logs found for this student/case combination
         }
       }
 
@@ -110,7 +66,7 @@ export async function GET(
 
       performance[email] = {
         assignedCases: assignedCaseIds.length,
-        completedCases: completedCaseIds.size,
+        completedCases: completedCaseCount,
         bestScore: overallBestScore,
         avgScore,
       };

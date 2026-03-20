@@ -67,8 +67,11 @@ export default function StudentCasesPage() {
     loadCases();
   }, [user?.email]);
 
-  const handleCaseClick = (caseId: string) => {
-    router.push(`/case/${caseId}`);
+  const handleCaseClick = (caseId: string, cohortId?: string) => {
+    const url = cohortId
+      ? `/case-play/${caseId}?cohortId=${encodeURIComponent(cohortId)}`
+      : `/case-play/${caseId}`;
+    router.push(url);
   };
 
   return (
@@ -155,7 +158,7 @@ export default function StudentCasesPage() {
               key={caseItem.id}
               isPressable
               className="hover:shadow-lg transition-shadow"
-              onPress={() => handleCaseClick(caseItem.id)}
+              onPress={() => handleCaseClick(caseItem.id, caseItem.cohortId)}
             >
               <CardHeader className="flex gap-3 pb-0">
                 <div className="flex items-center justify-center w-10 h-10 rounded-lg bg-primary/10">
