@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   createLLMStream,
   createSSEHeaders,
-  getAvatarSystemPrompt,
+  fetchAvatarSystemPrompt,
   type LLMRequest,
   type ChatMessage,
 } from "../common";
@@ -34,8 +34,8 @@ export async function POST(request: NextRequest) {
     const userMessages = messages.filter((msg) => msg.role === "user");
     const latestUserMessage = userMessages[userMessages.length - 1];
 
-    // Get the fixed system prompt for this avatar
-    let systemPrompt = getAvatarSystemPrompt(avatarId);
+    // Get the system prompt for this avatar from S3
+    let systemPrompt = await fetchAvatarSystemPrompt(avatarId);
 
     // Apply guardrails check
     const guardrailsResult = await applyGuardrails(

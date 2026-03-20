@@ -71,6 +71,8 @@ model Attempt {
   totalTimeSeconds Int?
   submittedAt      DateTime?
   createdAt        DateTime  @default(now())
+  evalResult       String?   @db.Text
+  interactionLogS3Key String?
 
   student Student @relation(fields: [studentId], references: [id])
   case    Case    @relation(fields: [caseId], references: [id])

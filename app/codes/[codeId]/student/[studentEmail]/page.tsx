@@ -29,6 +29,7 @@ interface AttemptData {
   score: number | null;
   totalMessages: number;
   totalTimeSeconds: number;
+  logId?: string;
 }
 
 interface CaseDetailData {
@@ -142,7 +143,28 @@ function ModuleCard({ title, icon, children }: ModuleCardProps) {
   );
 }
 
-function CaseDetailView({ data }: { data: CaseDetailData }) {
+function CaseDetailView({ data, studentEmail }: { data: CaseDetailData; studentEmail: string }) {
+  const [selectedAttemptLog, setSelectedAttemptLog] = useState<any>(null);
+  const [loadingLog, setLoadingLog] = useState(false);
+
+  const handleViewAttempt = async (attempt: AttemptData) => {
+    if (!attempt.logId) return;
+    setLoadingLog(true);
+    try {
+      const res = await fetch(
+        `/api/interaction/get?studentEmail=${encodeURIComponent(studentEmail)}&caseId=${encodeURIComponent(data.caseId)}&logId=${encodeURIComponent(attempt.logId)}`
+      );
+      if (res.ok) {
+        const result = await res.json();
+        setSelectedAttemptLog(result.log);
+      }
+    } catch (err) {
+      console.error("Failed to load interaction log:", err);
+    } finally {
+      setLoadingLog(false);
+    }
+  };
+
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
       {/* Time Usage Module */}
@@ -261,34 +283,42 @@ function CaseDetailView({ data }: { data: CaseDetailData }) {
               {data.attempts.map((attempt) => (
                 <div
                   key={attempt.attemptNumber}
-                  className="flex items-center justify-between p-3 bg-default-50 rounded-lg"
+                  className={`p-3 bg-default-50 rounded-lg cursor-pointer hover:bg-default-100 transition-colors ${
+                    selectedAttemptLog?.attemptNumber === attempt.attemptNumber ? "ring-2 ring-primary" : ""
+                  }`}
+                  onClick={() => attempt.logId && handleViewAttempt(attempt)}
                 >
-                  <div className="flex items-center gap-4">
-                    <Chip size="sm" variant="flat">
-                      Attempt {attempt.attemptNumber}
-                    </Chip>
-                    <span className="text-sm text-default-500">
-                      {new Date(attempt.startedAt).toLocaleDateString()}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-4">
-                    <span className="text-sm text-default-500">
-                      {attempt.totalMessages} messages
-                    </span>
-                    <span className="text-sm text-default-500">
-                      {Math.round(attempt.totalTimeSeconds / 60)} min
-                    </span>
-                    <Chip
-                      size="sm"
-                      color={
-                        attempt.score !== null && attempt.score >= 70
-                          ? "success"
-                          : "warning"
-                      }
-                      variant="flat"
-                    >
-                      {attempt.score !== null ? attempt.score : "In Progress"}
-                    </Chip>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-4">
+                      <Chip size="sm" variant="flat">
+                        Attempt {attempt.attemptNumber}
+                      </Chip>
+                      <span className="text-sm text-default-500">
+                        {new Date(attempt.startedAt).toLocaleDateString()}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-4">
+                      <span className="text-sm text-default-500">
+                        {attempt.totalMessages} messages
+                      </span>
+                      <span className="text-sm text-default-500">
+                        {Math.round(attempt.totalTimeSeconds / 60)} min
+                      </span>
+                      <Chip
+                        size="sm"
+                        color={
+                          attempt.score !== null && attempt.score >= 70
+                            ? "success"
+                            : "warning"
+                        }
+                        variant="flat"
+                      >
+                        {attempt.score !== null ? attempt.score : "In Progress"}
+                      </Chip>
+                      {attempt.logId && (
+                        <ChevronRight className="w-4 h-4 text-default-400" />
+                      )}
+                    </div>
                   </div>
                 </div>
               ))}
@@ -296,6 +326,125 @@ function CaseDetailView({ data }: { data: CaseDetailData }) {
           )}
         </CardBody>
       </Card>
+
+      {/* Interaction Log Detail */}
+      {loadingLog && (
+        <Card className="md:col-span-2">
+          <CardBody className="py-8 text-center">
+            <p className="text-default-500">Loading interaction log...</p>
+          </CardBody>
+        </Card>
+      )}
+
+      {selectedAttemptLog && !loadingLog && (
+        <>
+          {/* Eval Result */}
+          {selectedAttemptLog.evalResult && (
+            <Card className="md:col-span-2">
+              <CardHeader>
+                <div className="flex items-center gap-2">
+                  <Trophy size={20} className="text-primary" />
+                  <h3 className="font-semibold">Evaluation Result</h3>
+                  {selectedAttemptLog.evalScore !== undefined && selectedAttemptLog.evalScore !== null && (
+                    <Chip
+                      size="sm"
+                      color={selectedAttemptLog.evalScore >= 70 ? "success" : "warning"}
+                      variant="flat"
+                    >
+                      Score: {selectedAttemptLog.evalScore}/100
+                    </Chip>
+                  )}
+                </div>
+              </CardHeader>
+              <CardBody className="pt-0">
+                <pre className="whitespace-pre-wrap text-sm text-default-700 bg-default-50 p-4 rounded-lg">
+                  {selectedAttemptLog.evalResult}
+                </pre>
+              </CardBody>
+            </Card>
+          )}
+
+          {/* Interaction Timeline */}
+          <Card className="md:col-span-2">
+            <CardHeader>
+              <h3 className="font-semibold">Interaction Timeline</h3>
+            </CardHeader>
+            <CardBody className="pt-0">
+              <div className="space-y-2 max-h-96 overflow-y-auto">
+                {selectedAttemptLog.events?.map((event: any, idx: number) => {
+                  const time = new Date(event.timestamp).toLocaleTimeString();
+                  let label = "";
+                  let color = "default";
+
+                  switch (event.type) {
+                    case "start_session":
+                      label = "Session started";
+                      color = "success";
+                      break;
+                    case "enter_role":
+                      label = `Entered conversation with ${event.roleName}`;
+                      color = "primary";
+                      break;
+                    case "exit_role":
+                      label = `Left conversation with ${event.roleName}`;
+                      color = "warning";
+                      break;
+                    case "send_message":
+                      label = `Student → ${event.roleName}: ${(event.messageContent || "").substring(0, 80)}${(event.messageContent || "").length > 80 ? "..." : ""}`;
+                      break;
+                    case "receive_message":
+                      label = `${event.roleName} → Student: ${(event.messageContent || "").substring(0, 80)}${(event.messageContent || "").length > 80 ? "..." : ""}`;
+                      break;
+                    case "end_session":
+                      label = "Session ended";
+                      color = "danger";
+                      break;
+                  }
+
+                  return (
+                    <div key={idx} className="flex items-start gap-3 text-sm">
+                      <span className="text-default-400 font-mono text-xs whitespace-nowrap pt-0.5">{time}</span>
+                      <span className={`flex-1 ${event.type === "send_message" || event.type === "receive_message" ? "text-default-600" : "font-medium"}`}>
+                        {label}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </CardBody>
+          </Card>
+
+          {/* Full Conversation by Role */}
+          <Card className="md:col-span-2">
+            <CardHeader>
+              <h3 className="font-semibold">Conversations by Role</h3>
+            </CardHeader>
+            <CardBody className="pt-0 space-y-4">
+              {Object.entries(selectedAttemptLog.roleInteractions || {}).map(([roleId, interaction]: [string, any]) => (
+                <div key={roleId} className="border rounded-lg overflow-hidden">
+                  <div className="p-3 bg-default-100 font-medium text-sm">
+                    {interaction.roleName} ({interaction.messages?.length || 0} messages)
+                  </div>
+                  <div className="p-3 space-y-2 max-h-64 overflow-y-auto">
+                    {interaction.messages?.map((msg: any, idx: number) => (
+                      <div key={idx} className={`text-sm ${msg.role === "user" ? "text-right" : "text-left"}`}>
+                        <span className={`inline-block p-2 rounded-lg max-w-[80%] ${
+                          msg.role === "user" ? "bg-primary/10" : "bg-default-50"
+                        }`}>
+                          <span className="text-xs text-default-400 block mb-1">
+                            {msg.role === "user" ? "Student" : interaction.roleName} - {new Date(msg.timestamp).toLocaleTimeString()}
+                          </span>
+                          {msg.content}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </CardBody>
+          </Card>
+        </>
+      )}
     </div>
   );
 }
@@ -518,7 +667,7 @@ export default function StudentDetailPage() {
             <Briefcase size={20} className="text-primary" />
             <span>{selectedCase.caseName}</span>
           </div>
-          <CaseDetailView data={selectedCase} />
+          <CaseDetailView data={selectedCase} studentEmail={studentData.email} />
         </>
       ) : (
         <Card>
