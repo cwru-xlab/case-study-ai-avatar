@@ -345,12 +345,13 @@ export interface RoleInteraction {
 }
 
 export interface InteractionEvent {
-  type: "enter_role" | "exit_role" | "send_message" | "receive_message" | "start_session" | "end_session";
+  type: "enter_role" | "exit_role" | "send_message" | "receive_message" | "start_session" | "end_session" | "switch_interaction_mode";
   roleId?: string;
   roleName?: string;
   timestamp: number;
   messageContent?: string;
   messageRole?: "user" | "assistant";
+  interactionMode?: "text" | "avatar";
 }
 
 export interface InteractionLog {
