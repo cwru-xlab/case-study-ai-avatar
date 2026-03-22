@@ -154,8 +154,8 @@ export default function CodesPage() {
     const cohort = codes.find((c) => c.id === cohortId);
     if (!cohort) return;
 
+    await cohortStorage.update(cohortId, updates);
     const updatedCohort = { ...cohort, ...updates };
-    await cohortStorage.save(updatedCohort);
     setCodes((prev) => prev.map((c) => (c.id === cohortId ? updatedCohort : c)));
   };
 

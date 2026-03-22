@@ -15,7 +15,7 @@ import { useAuth } from "@/lib/auth-context";
 export default function JoinCohortPage() {
   const params = useParams();
   const router = useRouter();
-  const { user, isLoading: authLoading } = useAuth();
+  const { user, loading: authLoading } = useAuth();
   const accessCode = params.accessCode as string;
 
   const [loading, setLoading] = useState(true);
