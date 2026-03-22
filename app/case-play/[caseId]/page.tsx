@@ -17,13 +17,19 @@ import {
   CheckCircle,
   MessageSquare,
   Clock,
+  Type,
+  Video,
+  Mic,
+  MicOff,
 } from "lucide-react";
 import { addToast } from "@heroui/toast";
 import { title } from "@/components/primitives";
 import { useAuth } from "@/lib/auth-context";
-import type { CaseStudy, CaseAvatar, InteractionLog, RoleMessage, InteractionEvent } from "@/types";
+import type { CaseStudy, CaseAvatar, InteractionLog, RoleMessage, InteractionEvent, StartAvatarRequest, VideoAudioProfile } from "@/types";
+import InteractiveAvatarWrapper, { InteractiveAvatarRef } from "@/components/HeyGenAvatar/InteractiveAvatar";
 
 type PageState = "intro" | "playing";
+type InteractionMode = "text" | "avatar";
 
 export default function CasePlayPage() {
   const params = useParams();
@@ -47,6 +53,18 @@ export default function CasePlayPage() {
   const [finishing, setFinishing] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const autoSaveRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Interaction mode state (text vs avatar)
+  const [interactionMode, setInteractionMode] = useState<InteractionMode>("text");
+  const avatarRef = useRef<InteractiveAvatarRef>(null);
+  const [avatarConfig, setAvatarConfig] = useState<StartAvatarRequest | null>(null);
+  const [avatarConfigLoading, setAvatarConfigLoading] = useState(false);
+
+  // Push-to-talk state for avatar mode
+  const [isRecording, setIsRecording] = useState(false);
+  const [isTranscribing, setIsTranscribing] = useState(false);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
 
   // Load case data
   useEffect(() => {
@@ -84,6 +102,36 @@ export default function CasePlayPage() {
       };
     }
   }, [pageState, mode, interactionLog]);
+
+  // Load avatar profile config when role changes or when switching to avatar mode
+  useEffect(() => {
+    if (interactionMode === "avatar" && selectedRole?.profileId) {
+      loadAvatarConfig(selectedRole.profileId);
+    }
+  }, [interactionMode, selectedRole]);
+
+  const loadAvatarConfig = async (profileId: string) => {
+    setAvatarConfigLoading(true);
+    try {
+      const res = await fetch(`/api/profile/get?id=${encodeURIComponent(profileId)}`);
+      if (!res.ok) throw new Error("Failed to load profile");
+      const data = await res.json();
+      const profile: VideoAudioProfile = data.profile;
+      setAvatarConfig({
+        quality: profile.quality,
+        avatarName: profile.avatarName,
+        knowledgeId: profile.knowledgeId,
+        voice: profile.voice,
+        language: profile.language,
+      });
+    } catch (err) {
+      console.error("Failed to load avatar profile:", err);
+      addToast({ title: "Failed to load avatar profile, using defaults", color: "warning" });
+      setAvatarConfig(null);
+    } finally {
+      setAvatarConfigLoading(false);
+    }
+  };
 
   const saveInteraction = async (log: InteractionLog) => {
     if (log.mode !== "assessed") return;
@@ -147,6 +195,11 @@ export default function CasePlayPage() {
       if (interactionLog.roleInteractions[selectedRole.id]) {
         interactionLog.roleInteractions[selectedRole.id].exitedAt = now;
       }
+
+      // Stop avatar session when switching roles
+      if (interactionMode === "avatar") {
+        avatarRef.current?.stopSession();
+      }
     }
 
     // Add enter event
@@ -176,16 +229,38 @@ export default function CasePlayPage() {
     setInteractionLog({ ...interactionLog });
   };
 
-  const handleSendMessage = async () => {
-    if (!currentInput.trim() || !selectedRole || !interactionLog || !caseData) return;
-
-    const userMessage = currentInput.trim();
-    setCurrentInput("");
-    setSending(true);
+  const handleSwitchInteractionMode = (newMode: InteractionMode) => {
+    if (newMode === interactionMode) return;
+    if (!interactionLog || !selectedRole) return;
 
     const now = Date.now();
 
-    // Add user message
+    // Log the mode switch event
+    const switchEvent: InteractionEvent = {
+      type: "switch_interaction_mode",
+      roleId: selectedRole.id,
+      roleName: selectedRole.name,
+      timestamp: now,
+      interactionMode: newMode,
+    };
+    interactionLog.events.push(switchEvent);
+    setInteractionLog({ ...interactionLog });
+
+    // Stop avatar session when switching away from avatar mode
+    if (interactionMode === "avatar" && newMode === "text") {
+      avatarRef.current?.stopSession();
+    }
+
+    setInteractionMode(newMode);
+  };
+
+  // Shared function to send a message and get AI response (used by both text and voice input)
+  const sendMessageAndGetResponse = async (userMessage: string) => {
+    if (!selectedRole || !interactionLog || !caseData) return;
+
+    setSending(true);
+
+    const now = Date.now();
     const userMsg: RoleMessage = { role: "user", content: userMessage, timestamp: now };
     const roleId = selectedRole.id;
 
@@ -207,7 +282,6 @@ export default function CasePlayPage() {
     });
 
     try {
-      // Get the chat history for this role only (continuous within this role)
       const roleHistory = interactionLog.roleInteractions[roleId].messages.map((m) => ({
         role: m.role,
         content: m.content,
@@ -252,11 +326,138 @@ export default function CasePlayPage() {
       });
 
       setInteractionLog({ ...interactionLog });
+
+      // If in avatar mode, have the avatar speak the response
+      if (interactionMode === "avatar") {
+        avatarRef.current?.speak(data.message);
+      }
+
+      return data.message;
     } catch (err) {
       console.error("Chat error:", err);
       addToast({ title: "Failed to get response", color: "danger" });
     } finally {
       setSending(false);
+    }
+  };
+
+  const handleSendMessage = async () => {
+    if (!currentInput.trim()) return;
+    const userMessage = currentInput.trim();
+    setCurrentInput("");
+    await sendMessageAndGetResponse(userMessage);
+  };
+
+  // Push-to-talk handlers for avatar mode
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream, {
+        mimeType: "audio/webm;codecs=opus",
+      });
+      mediaRecorderRef.current = mediaRecorder;
+      audioChunksRef.current = [];
+
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          audioChunksRef.current.push(event.data);
+        }
+      };
+
+      mediaRecorder.onstop = () => {
+        stream.getTracks().forEach((track) => track.stop());
+        processRecording();
+      };
+
+      mediaRecorder.start();
+      setIsRecording(true);
+    } catch (error) {
+      console.error("Error starting recording:", error);
+      addToast({ title: "Could not access microphone", color: "danger" });
+    }
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && isRecording) {
+      mediaRecorderRef.current.stop();
+      setIsRecording(false);
+    }
+  };
+
+  const processRecording = async () => {
+    if (audioChunksRef.current.length === 0) return;
+
+    setIsTranscribing(true);
+
+    try {
+      const audioBlob = new Blob(audioChunksRef.current, { type: "audio/webm" });
+      const formData = new FormData();
+      formData.append("audio", audioBlob, "recording.webm");
+
+      const response = await fetch("/api/audio/transcribe", {
+        method: "POST",
+        body: formData,
+      });
+
+      if (!response.ok) throw new Error("Transcription failed");
+
+      const reader = response.body?.getReader();
+      const decoder = new TextDecoder();
+      if (!reader) throw new Error("No reader available");
+
+      let buffer = "";
+      let transcribedText = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
+
+        for (const line of lines) {
+          if (line.startsWith("data: ")) {
+            try {
+              const data = JSON.parse(line.slice(6));
+              if (data.type === "delta") {
+                transcribedText = data.text;
+              } else if (data.type === "done") {
+                transcribedText = data.text;
+                break;
+              } else if (data.type === "error") {
+                throw new Error("Transcription error");
+              }
+            } catch (parseError) {
+              if (parseError instanceof Error && parseError.message === "Transcription error") {
+                throw parseError;
+              }
+              console.error("Error parsing transcription:", parseError);
+            }
+          }
+        }
+      }
+
+      if (transcribedText.trim()) {
+        await sendMessageAndGetResponse(transcribedText.trim());
+      }
+    } catch (error) {
+      console.error("Error processing recording:", error);
+      addToast({ title: "Failed to transcribe audio", color: "danger" });
+    } finally {
+      setIsTranscribing(false);
+    }
+  };
+
+  const handlePushToTalkDown = () => {
+    if (!sending && !isTranscribing) {
+      startRecording();
+    }
+  };
+
+  const handlePushToTalkUp = () => {
+    if (isRecording) {
+      stopRecording();
     }
   };
 
@@ -267,6 +468,11 @@ export default function CasePlayPage() {
     try {
       // Clear auto-save
       if (autoSaveRef.current) clearInterval(autoSaveRef.current);
+
+      // Stop avatar session if active
+      if (interactionMode === "avatar") {
+        avatarRef.current?.stopSession();
+      }
 
       const res = await fetch("/api/interaction/finish", {
         method: "POST",
@@ -298,6 +504,9 @@ export default function CasePlayPage() {
       handleSendMessage();
     }
   };
+
+  // Check if current role has a profile configured for avatar mode
+  const roleHasAvatarProfile = selectedRole?.profileId != null;
 
   if (loading) {
     return (
@@ -457,32 +666,81 @@ export default function CasePlayPage() {
                 <p className="font-semibold">{selectedRole.name}</p>
                 <p className="text-sm text-default-500">{selectedRole.role}</p>
               </div>
-              <Button
-                size="sm"
-                variant="light"
-                startContent={<LogOut className="w-4 h-4" />}
-                onPress={() => {
-                  if (interactionLog && selectedRole) {
-                    const now = Date.now();
-                    interactionLog.events.push({
-                      type: "exit_role",
-                      roleId: selectedRole.id,
-                      roleName: selectedRole.name,
-                      timestamp: now,
-                    });
-                    if (interactionLog.roleInteractions[selectedRole.id]) {
-                      interactionLog.roleInteractions[selectedRole.id].exitedAt = now;
+              <div className="flex items-center gap-2">
+                {/* Interaction mode switch */}
+                {roleHasAvatarProfile && (
+                  <div className="flex gap-1">
+                    <Button
+                      size="sm"
+                      variant="flat"
+                      color={interactionMode === "text" ? "primary" : "default"}
+                      onPress={() => handleSwitchInteractionMode("text")}
+                      startContent={<Type className="w-3 h-3" />}
+                    >
+                      Text
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="flat"
+                      color={interactionMode === "avatar" ? "primary" : "default"}
+                      onPress={() => handleSwitchInteractionMode("avatar")}
+                      startContent={<Video className="w-3 h-3" />}
+                    >
+                      Avatar
+                    </Button>
+                  </div>
+                )}
+                <Button
+                  size="sm"
+                  variant="light"
+                  startContent={<LogOut className="w-4 h-4" />}
+                  onPress={() => {
+                    if (interactionLog && selectedRole) {
+                      const now = Date.now();
+                      interactionLog.events.push({
+                        type: "exit_role",
+                        roleId: selectedRole.id,
+                        roleName: selectedRole.name,
+                        timestamp: now,
+                      });
+                      if (interactionLog.roleInteractions[selectedRole.id]) {
+                        interactionLog.roleInteractions[selectedRole.id].exitedAt = now;
+                      }
+                      setInteractionLog({ ...interactionLog });
                     }
-                    setInteractionLog({ ...interactionLog });
-                  }
-                  setSelectedRole(null);
-                }}
-              >
-                Leave
-              </Button>
+                    // Stop avatar session when leaving role
+                    if (interactionMode === "avatar") {
+                      avatarRef.current?.stopSession();
+                    }
+                    setSelectedRole(null);
+                  }}
+                >
+                  Leave
+                </Button>
+              </div>
             </div>
 
-            {/* Messages */}
+            {/* Avatar video area - shown only in avatar mode */}
+            {interactionMode === "avatar" && (
+              <div className="border-b">
+                {avatarConfigLoading ? (
+                  <div className="flex items-center justify-center py-12">
+                    <Spinner size="lg" label="Loading avatar profile..." />
+                  </div>
+                ) : (
+                  <div className="max-h-[300px] overflow-hidden">
+                    <InteractiveAvatarWrapper
+                      ref={avatarRef}
+                      config={avatarConfig ?? undefined}
+                      showHistory={false}
+                      autoStart={true}
+                    />
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Messages - always visible regardless of mode */}
             <div className="flex-1 overflow-y-auto p-4 space-y-4">
               {currentRoleMessages.length === 0 && (
                 <div className="text-center text-default-400 py-8">
@@ -518,27 +776,93 @@ export default function CasePlayPage() {
               <div ref={chatEndRef} />
             </div>
 
-            {/* Input */}
+            {/* Input area - changes based on interaction mode */}
             <div className="p-4 border-t">
-              <div className="flex gap-2">
-                <Input
-                  placeholder={`Message ${selectedRole.name}...`}
-                  value={currentInput}
-                  onValueChange={setCurrentInput}
-                  onKeyDown={handleKeyDown}
-                  isDisabled={sending}
-                  className="flex-1"
-                />
-                <Button
-                  isIconOnly
-                  color="primary"
-                  onPress={handleSendMessage}
-                  isLoading={sending}
-                  isDisabled={!currentInput.trim()}
-                >
-                  <Send className="w-4 h-4" />
-                </Button>
-              </div>
+              {interactionMode === "text" ? (
+                /* Text input mode */
+                <div className="flex gap-2">
+                  <Input
+                    placeholder={`Message ${selectedRole.name}...`}
+                    value={currentInput}
+                    onValueChange={setCurrentInput}
+                    onKeyDown={handleKeyDown}
+                    isDisabled={sending}
+                    className="flex-1"
+                  />
+                  <Button
+                    isIconOnly
+                    color="primary"
+                    onPress={handleSendMessage}
+                    isLoading={sending}
+                    isDisabled={!currentInput.trim()}
+                  >
+                    <Send className="w-4 h-4" />
+                  </Button>
+                </div>
+              ) : (
+                /* Avatar push-to-talk mode */
+                <div className="flex flex-col items-center gap-2">
+                  <div className="flex items-center gap-3">
+                    <Button
+                      size="lg"
+                      color={isRecording ? "danger" : "primary"}
+                      className={`rounded-full w-16 h-16 transition-all ${isRecording ? "scale-110" : ""}`}
+                      isIconOnly
+                      isDisabled={sending || isTranscribing}
+                      onMouseDown={handlePushToTalkDown}
+                      onMouseUp={handlePushToTalkUp}
+                      onMouseLeave={handlePushToTalkUp}
+                      onTouchStart={(e: React.TouchEvent) => {
+                        e.preventDefault();
+                        handlePushToTalkDown();
+                      }}
+                      onTouchEnd={(e: React.TouchEvent) => {
+                        e.preventDefault();
+                        handlePushToTalkUp();
+                      }}
+                    >
+                      {isRecording ? (
+                        <MicOff className="w-6 h-6" />
+                      ) : isTranscribing ? (
+                        <Spinner size="sm" color="white" />
+                      ) : (
+                        <Mic className="w-6 h-6" />
+                      )}
+                    </Button>
+                  </div>
+                  <p className="text-xs text-default-400">
+                    {isRecording
+                      ? "Release to send"
+                      : isTranscribing
+                        ? "Transcribing..."
+                        : sending
+                          ? "Getting response..."
+                          : "Hold to talk"}
+                  </p>
+                  {/* Also allow text input in avatar mode */}
+                  <div className="flex gap-2 w-full mt-2">
+                    <Input
+                      placeholder={`Or type a message...`}
+                      value={currentInput}
+                      onValueChange={setCurrentInput}
+                      onKeyDown={handleKeyDown}
+                      isDisabled={sending || isRecording || isTranscribing}
+                      size="sm"
+                      className="flex-1"
+                    />
+                    <Button
+                      isIconOnly
+                      color="primary"
+                      size="sm"
+                      onPress={handleSendMessage}
+                      isLoading={sending}
+                      isDisabled={!currentInput.trim() || isRecording || isTranscribing}
+                    >
+                      <Send className="w-3 h-3" />
+                    </Button>
+                  </div>
+                </div>
+              )}
             </div>
           </>
         )}
