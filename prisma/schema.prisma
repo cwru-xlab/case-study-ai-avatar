@@ -7,32 +7,60 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-model Student {
+model User {
   id            String   @id @default(uuid())
   email         String   @unique
-  displayName   String?
+  name          String?
+  role          String   @default("student") // "admin" | "professor" | "student"
   studentNumber String?
   createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
-  cohortId String?
-  cohort   Cohort? @relation(fields: [cohortId], references: [id])
-
+  // Student relationships - cohorts they joined
+  cohortMemberships CohortMember[]
+  
+  // Student relationships - learning records
   assignments CaseAssignment[]
   attempts    Attempt[]
+
+  // Professor relationships - cohorts they created
+  createdCohorts Cohort[] @relation("CohortCreator")
 }
 
 model Cohort {
-  id        String   @id @default(uuid())
-  name      String
-  code      String?
-  semester  String?
-  year      Int?
-  term      String?
-  createdAt DateTime @default(now())
+  id          String   @id @default(uuid())
+  name        String
+  code        String?  @unique
+  description String?
+  semester    String?
+  year        Int?
+  term        String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
-  students Student[]
+  // Creator (professor)
+  creatorId String?
+  creator   User?   @relation("CohortCreator", fields: [creatorId], references: [id])
 
+  // Members (students)
+  members CohortMember[]
+
+  // Assigned cases
   assignments CaseAssignment[]
+}
+
+model CohortMember {
+  id        String   @id @default(uuid())
+  userId    String
+  cohortId  String
+  status    String   @default("joined") // "invited" | "joined" | "active" | "completed"
+  joinedAt  DateTime @default(now())
+
+  user   User   @relation(fields: [userId], references: [id])
+  cohort Cohort @relation(fields: [cohortId], references: [id])
+
+  @@unique([userId, cohortId])
 }
 
 model Case {
@@ -49,33 +77,33 @@ model Case {
 
 model CaseAssignment {
   id         String   @id @default(uuid())
-  studentId  String
+  userId     String
   caseId     String
   cohortId   String?
   assignedAt DateTime @default(now())
 
-  student Student @relation(fields: [studentId], references: [id])
-  case    Case    @relation(fields: [caseId], references: [id])
-  cohort  Cohort? @relation(fields: [cohortId], references: [id])
+  user   User    @relation(fields: [userId], references: [id])
+  case   Case    @relation(fields: [caseId], references: [id])
+  cohort Cohort? @relation(fields: [cohortId], references: [id])
 
-  @@unique([studentId, caseId])
+  @@unique([userId, caseId])
 }
 
 model Attempt {
-  id               String    @id @default(uuid())
-  studentId        String
-  caseId           String
-  attemptNumber    Int
-  score            Int?
-  totalMessages    Int?
-  totalTimeSeconds Int?
-  submittedAt      DateTime?
-  createdAt        DateTime  @default(now())
-  evalResult       String?   @db.Text
+  id                  String    @id @default(uuid())
+  userId              String
+  caseId              String
+  attemptNumber       Int
+  score               Int?
+  totalMessages       Int?
+  totalTimeSeconds    Int?
+  submittedAt         DateTime?
+  createdAt           DateTime  @default(now())
+  evalResult          String?   @db.Text
   interactionLogS3Key String?
 
-  student Student @relation(fields: [studentId], references: [id])
-  case    Case    @relation(fields: [caseId], references: [id])
+  user User @relation(fields: [userId], references: [id])
+  case Case @relation(fields: [caseId], references: [id])
 
-  @@unique([studentId, caseId, attemptNumber])
+  @@unique([userId, caseId, attemptNumber])
 }

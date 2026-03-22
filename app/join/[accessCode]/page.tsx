@@ -6,7 +6,7 @@ import { Button } from "@heroui/button";
 import { Input } from "@heroui/input";
 import { Card, CardBody, CardHeader } from "@heroui/card";
 import { Chip } from "@heroui/chip";
-import { Users, Calendar, CheckCircle, AlertCircle } from "lucide-react";
+import { Users, Calendar, CheckCircle, AlertCircle, LogIn } from "lucide-react";
 import { addToast } from "@heroui/toast";
 import type { Cohort } from "@/types/cohort";
 import { ACCESS_MODE_LABELS } from "@/types/cohort";
@@ -15,32 +15,30 @@ import { useAuth } from "@/lib/auth-context";
 export default function JoinCohortPage() {
   const params = useParams();
   const router = useRouter();
-  const { user } = useAuth();
+  const { user, isLoading: authLoading } = useAuth();
   const accessCode = params.accessCode as string;
 
   const [loading, setLoading] = useState(true);
   const [joining, setJoining] = useState(false);
   const [cohort, setCohort] = useState<Cohort | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [email, setEmail] = useState("");
-  const [name, setName] = useState("");
   const [joined, setJoined] = useState(false);
-
-  // Pre-fill email and name from logged-in user
-  useEffect(() => {
-    if (user?.email && !email) {
-      setEmail(user.email);
-    }
-    if (user?.name && !name) {
-      setName(user.name);
-    }
-  }, [user]);
 
   useEffect(() => {
     if (accessCode) {
       fetchCohort();
     }
   }, [accessCode]);
+
+  // If user is not logged in, save accessCode and redirect to login
+  useEffect(() => {
+    if (!authLoading && !user && cohort) {
+      // Save the accessCode to localStorage so we can use it after login
+      localStorage.setItem("pendingCohortJoin", accessCode);
+      // Redirect to login with return URL
+      router.push(`/login?returnTo=${encodeURIComponent(`/join/${accessCode}`)}`);
+    }
+  }, [authLoading, user, cohort, accessCode, router]);
 
   const fetchCohort = async () => {
     try {
@@ -111,20 +109,11 @@ export default function JoinCohortPage() {
   };
 
   const handleJoin = async () => {
-    if (!email.trim()) {
+    if (!user?.email) {
       addToast({
-        title: "Email required",
-        description: "Please enter your email address",
-        color: "danger",
-      });
-      return;
-    }
-
-    if (!email.includes("@")) {
-      addToast({
-        title: "Invalid email",
-        description: "Please enter a valid email address",
-        color: "danger",
+        title: "Login required",
+        description: "Please log in to join this cohort",
+        color: "warning",
       });
       return;
     }
@@ -139,8 +128,8 @@ export default function JoinCohortPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           accessCode,
-          email: email.trim().toLowerCase(),
-          name: name.trim() || undefined,
+          email: user.email.trim().toLowerCase(),
+          name: user.name || undefined,
         }),
       });
 
@@ -148,6 +137,9 @@ export default function JoinCohortPage() {
         const data = await response.json();
         throw new Error(data.error || "Failed to join cohort");
       }
+
+      // Clear the pending join from localStorage
+      localStorage.removeItem("pendingCohortJoin");
 
       setJoined(true);
       addToast({
@@ -162,6 +154,17 @@ export default function JoinCohortPage() {
       setJoining(false);
     }
   };
+
+  // Show loading while checking auth
+  if (authLoading) {
+    return (
+      <Card>
+        <CardBody className="text-center py-12">
+          <p className="text-default-500">Checking login status...</p>
+        </CardBody>
+      </Card>
+    );
+  }
 
   if (loading) {
     return (
@@ -187,6 +190,27 @@ export default function JoinCohortPage() {
     );
   }
 
+  // If not logged in and cohort is valid, show login prompt
+  if (!user && cohort) {
+    return (
+      <Card>
+        <CardBody className="text-center py-12 space-y-4">
+          <LogIn className="w-12 h-12 text-primary mx-auto" />
+          <h2 className="text-xl font-bold">Login Required</h2>
+          <p className="text-default-600">
+            Please log in to join <strong>{cohort.name}</strong>
+          </p>
+          <Button 
+            color="primary" 
+            onPress={() => router.push(`/login?returnTo=${encodeURIComponent(`/join/${accessCode}`)}`)}
+          >
+            Log In to Continue
+          </Button>
+        </CardBody>
+      </Card>
+    );
+  }
+
   if (joined) {
     return (
       <Card>
@@ -197,7 +221,7 @@ export default function JoinCohortPage() {
             You have successfully joined <strong>{cohort?.name}</strong>
           </p>
           <p className="text-sm text-default-500">
-            Check your email for further instructions.
+            You can now access the cases assigned to this cohort.
           </p>
           <Button color="primary" onPress={() => router.push("/student-cases")}>
             Go to My Cases
@@ -259,38 +283,29 @@ export default function JoinCohortPage() {
             </div>
           )}
 
-          <div className="border-t pt-4 space-y-4">
-            <h3 className="font-semibold text-center">Join this Cohort</h3>
-            {user?.email && (
-              <p className="text-xs text-center text-default-500 bg-default-100 p-2 rounded">
-                You&apos;re logged in as <strong>{user.email}</strong>. This email will be used to join the cohort.
-              </p>
-            )}
-            <Input
-              type="email"
-              label="Email Address"
-              placeholder="your.email@example.com"
-              value={email}
-              onValueChange={setEmail}
-              isRequired
-              isDisabled={!!user?.email}
-              description={user?.email ? "Using your account email" : undefined}
-            />
-            <Input
-              label="Your Name (optional)"
-              placeholder="John Doe"
-              value={name}
-              onValueChange={setName}
-            />
-            <Button
-              color="primary"
-              fullWidth
-              isLoading={joining}
-              onPress={handleJoin}
-            >
-              {joining ? "Joining..." : "Join Cohort"}
-            </Button>
-          </div>
+          {/* Join Section - Only show if logged in */}
+          {user && (
+            <div className="border-t pt-4 space-y-4">
+              <h3 className="font-semibold text-center">Join this Cohort</h3>
+              <div className="p-3 bg-primary-50 rounded-lg text-center">
+                <p className="text-sm text-primary-700">
+                  You are logged in as <strong>{user.email}</strong>
+                </p>
+                {user.name && (
+                  <p className="text-xs text-primary-600">({user.name})</p>
+                )}
+              </div>
+              <Button
+                color="primary"
+                fullWidth
+                size="lg"
+                isLoading={joining}
+                onPress={handleJoin}
+              >
+                {joining ? "Joining..." : "Join This Cohort"}
+              </Button>
+            </div>
+          )}
         </CardBody>
       </Card>
 

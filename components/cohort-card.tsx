@@ -1,23 +1,39 @@
 "use client";
 
+import { useState } from "react";
 import { Card, CardBody, CardHeader } from "@heroui/card";
 import { Chip } from "@heroui/chip";
 import { Button } from "@heroui/button";
-import { Users, Copy, Pencil, Eye, Trash2 } from "lucide-react";
+import { Input } from "@heroui/input";
+import { 
+  Modal, 
+  ModalContent, 
+  ModalHeader, 
+  ModalBody, 
+  ModalFooter 
+} from "@heroui/modal";
+import { Select, SelectItem } from "@heroui/select";
+import { Users, Trash2, Share2, Calendar, Clock, Lock, Unlock, ChevronRight } from "lucide-react";
 import { addToast } from "@heroui/toast";
 import type { CachedCohort } from "@/types/cohort";
-import { ACCESS_MODE_LABELS } from "@/types/cohort";
 
 interface CohortCardProps {
   cohort: CachedCohort;
   onEdit: (cohortId: string) => void;
   onViewLearners: (cohortId: string) => void;
   onDelete: (cohortId: string) => void;
+  onShare: (cohortId: string) => void;
+  onUpdate?: (cohortId: string, updates: Partial<CachedCohort>) => Promise<void>;
 }
 
 function formatDate(dateString: string | null): string {
   if (!dateString) return "—";
   return new Date(dateString).toLocaleDateString();
+}
+
+function formatDateForInput(dateString: string | null): string {
+  if (!dateString) return "";
+  return new Date(dateString).toISOString().split("T")[0];
 }
 
 function getCohortStatus(cohort: CachedCohort): {
@@ -30,7 +46,6 @@ function getCohortStatus(cohort: CachedCohort): {
 
   const now = new Date();
 
-  // Check if not yet available
   if (cohort.availableDate) {
     const availDate = new Date(cohort.availableDate);
     if (now < availDate) {
@@ -38,7 +53,6 @@ function getCohortStatus(cohort: CachedCohort): {
     }
   }
 
-  // Check if expired
   if (cohort.expirationDate) {
     const expDate = new Date(cohort.expirationDate);
     if (now > expDate) {
@@ -49,206 +63,264 @@ function getCohortStatus(cohort: CachedCohort): {
   return { label: "Active", color: "success" };
 }
 
+type EditField = "available" | "expires" | "access" | null;
+
 export default function CohortCard({
   cohort,
   onEdit,
   onViewLearners,
   onDelete,
+  onShare,
+  onUpdate,
 }: CohortCardProps) {
   const status = getCohortStatus(cohort);
   const learnerCount = cohort.students?.length || 0;
 
-  const copyToClipboard = (text: string, successMessage: string) => {
-    if (!text) return;
+  const [editField, setEditField] = useState<EditField>(null);
+  const [saving, setSaving] = useState(false);
+  const [availableDate, setAvailableDate] = useState(formatDateForInput(cohort.availableDate));
+  const [expirationDate, setExpirationDate] = useState(formatDateForInput(cohort.expirationDate));
+  const [accessMode, setAccessMode] = useState(cohort.accessMode);
 
-    if (navigator?.clipboard?.writeText) {
-      navigator.clipboard
-        .writeText(text)
-        .then(() => {
-          addToast({
-            title: "Copied",
-            description: successMessage,
-            color: "success",
-          });
-        })
-        .catch(() => {
-          fallbackCopy(text, successMessage);
-        });
-    } else {
-      fallbackCopy(text, successMessage);
+  const handleSave = async () => {
+    if (!onUpdate) {
+      setEditField(null);
+      return;
     }
-  };
 
-  const fallbackCopy = (text: string, successMessage: string) => {
-    const textArea = document.createElement("textarea");
-    textArea.value = text;
-    textArea.style.position = "fixed";
-    textArea.style.left = "-999999px";
-    textArea.style.top = "-999999px";
-    document.body.appendChild(textArea);
-    textArea.focus();
-    textArea.select();
-
+    setSaving(true);
     try {
-      document.execCommand("copy");
-      addToast({
-        title: "Copied",
-        description: successMessage,
-        color: "success",
-      });
-    } catch {
-      addToast({
-        title: "Copy failed",
-        description: "Could not copy to clipboard",
-        color: "danger",
-      });
+      const updates: Partial<CachedCohort> = {};
+      
+      if (editField === "available") {
+        updates.availableDate = availableDate ? new Date(availableDate).toISOString() : null;
+      } else if (editField === "expires") {
+        updates.expirationDate = expirationDate ? new Date(expirationDate).toISOString() : null;
+      } else if (editField === "access") {
+        updates.accessMode = accessMode;
+      }
+
+      await onUpdate(cohort.id, updates);
+      addToast({ title: "Updated successfully", color: "success" });
+      setEditField(null);
+    } catch (err) {
+      addToast({ title: "Failed to update", color: "danger" });
+    } finally {
+      setSaving(false);
     }
-
-    document.body.removeChild(textArea);
-  };
-
-  const getJoinLink = () => {
-    if (typeof window !== "undefined") {
-      return `${window.location.origin}/join/${cohort.accessCode}`;
-    }
-    return `/join/${cohort.accessCode}`;
-  };
-
-  const handleCopyLink = () => {
-    copyToClipboard(getJoinLink(), "Join link copied to clipboard");
-  };
-
-  const handleCopyCode = () => {
-    copyToClipboard(cohort.accessCode, "Access code copied to clipboard");
-  };
-
-  const handleEdit = () => {
-    onEdit(cohort.id);
-  };
-
-  const handleViewLearners = () => {
-    onViewLearners(cohort.id);
-  };
-
-  const handleDelete = () => {
-    onDelete(cohort.id);
   };
 
   return (
-    <Card className="h-full">
-      <CardHeader className="flex gap-3">
-        <div className="w-12 h-12 bg-primary-100 rounded-full flex items-center justify-center">
-          <Users className="w-6 h-6 text-primary" />
-        </div>
-        <div className="flex flex-col flex-1">
-          <div className="flex items-center gap-2 flex-wrap">
-            <p className="text-md font-semibold">{cohort.name}</p>
-            <Chip size="sm" color={status.color} variant="solid">
-              {status.label}
-            </Chip>
+    <>
+      <Card className="h-full hover:shadow-md transition-shadow">
+        {/* Header */}
+        <CardHeader className="flex gap-3 pb-2">
+          <div className="w-10 h-10 bg-primary-100 rounded-full flex items-center justify-center">
+            <Users className="w-5 h-5 text-primary" />
           </div>
-          {cohort.description && (
-            <p className="text-small text-default-500 line-clamp-1">
-              {cohort.description}
-            </p>
-          )}
-        </div>
-      </CardHeader>
-      <CardBody className="pt-0">
-        <div className="space-y-3">
-          {/* Info Grid */}
-          <div className="grid grid-cols-2 gap-2 text-sm">
-            <div>
-              <span className="text-default-400">Available:</span>{" "}
-              <span className="font-medium">
-                {cohort.availableDate ? formatDate(cohort.availableDate) : "Now"}
-              </span>
+          <div className="flex flex-col flex-1 min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <p className="text-md font-semibold truncate">{cohort.name}</p>
+              <Chip size="sm" color={status.color} variant="flat">
+                {status.label}
+              </Chip>
             </div>
-            <div>
-              <span className="text-default-400">Expires:</span>{" "}
-              <span className="font-medium">
-                {cohort.expirationDate
-                  ? formatDate(cohort.expirationDate)
-                  : "Never"}
-              </span>
-            </div>
-            <div>
-              <span className="text-default-400">Access:</span>{" "}
-              <span className="font-medium">
-                {cohort.accessMode === "anyone" ? "Open" : "Restricted"}
-              </span>
-            </div>
-            <div>
-              <span className="text-default-400">Learners:</span>{" "}
-              <span className="font-medium">{learnerCount}</span>
-            </div>
+            {cohort.description && (
+              <p className="text-xs text-default-500 line-clamp-1">
+                {cohort.description}
+              </p>
+            )}
           </div>
+        </CardHeader>
 
-          {/* Access Code */}
-          <div className="flex items-center justify-between p-2 bg-default-100 rounded-lg">
-            <div>
-              <span className="text-xs text-default-400">Code: </span>
-              <code className="font-mono font-bold text-primary">
-                {cohort.accessCode}
-              </code>
+        <CardBody className="pt-0">
+          <div className="space-y-3">
+            {/* LEARNERS - Elegant clickable area */}
+            <div
+              className="relative overflow-hidden rounded-xl cursor-pointer transition-all group"
+              onClick={() => onViewLearners(cohort.id)}
+            >
+              <div className="absolute inset-0 bg-gradient-to-br from-blue-500 to-indigo-600 opacity-90 group-hover:opacity-100 transition-opacity" />
+              <div className="relative p-4 flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-11 h-11 bg-white/20 backdrop-blur rounded-lg flex items-center justify-center">
+                    <Users className="w-5 h-5 text-white" />
+                  </div>
+                  <div>
+                    <div className="flex items-baseline gap-1.5">
+                      <span className="text-2xl font-bold text-white">{learnerCount}</span>
+                      <span className="text-sm font-medium text-white/80">learners</span>
+                    </div>
+                    <p className="text-xs text-white/60">Click to manage</p>
+                  </div>
+                </div>
+                <div className="w-8 h-8 bg-white/10 rounded-full flex items-center justify-center group-hover:bg-white/20 transition-colors">
+                  <ChevronRight className="w-5 h-5 text-white group-hover:translate-x-0.5 transition-transform" />
+                </div>
+              </div>
             </div>
-            <div className="flex gap-1">
+
+            {/* Clickable Settings */}
+            <div className="space-y-1">
+              <div 
+                className="flex items-center justify-between p-2 rounded-lg hover:bg-default-100 cursor-pointer transition-colors"
+                onClick={() => {
+                  setAvailableDate(formatDateForInput(cohort.availableDate));
+                  setEditField("available");
+                }}
+              >
+                <div className="flex items-center gap-2 text-sm">
+                  <Calendar className="w-4 h-4 text-default-400" />
+                  <span className="text-default-500">Available</span>
+                </div>
+                <span className="text-sm font-medium text-primary hover:underline">
+                  {cohort.availableDate ? formatDate(cohort.availableDate) : "Now"}
+                </span>
+              </div>
+
+              <div 
+                className="flex items-center justify-between p-2 rounded-lg hover:bg-default-100 cursor-pointer transition-colors"
+                onClick={() => {
+                  setExpirationDate(formatDateForInput(cohort.expirationDate));
+                  setEditField("expires");
+                }}
+              >
+                <div className="flex items-center gap-2 text-sm">
+                  <Clock className="w-4 h-4 text-default-400" />
+                  <span className="text-default-500">Expires</span>
+                </div>
+                <span className="text-sm font-medium text-primary hover:underline">
+                  {cohort.expirationDate ? formatDate(cohort.expirationDate) : "Never"}
+                </span>
+              </div>
+
+              <div 
+                className="flex items-center justify-between p-2 rounded-lg hover:bg-default-100 cursor-pointer transition-colors"
+                onClick={() => {
+                  setAccessMode(cohort.accessMode);
+                  setEditField("access");
+                }}
+              >
+                <div className="flex items-center gap-2 text-sm">
+                  {cohort.accessMode === "anyone" ? (
+                    <Unlock className="w-4 h-4 text-default-400" />
+                  ) : (
+                    <Lock className="w-4 h-4 text-default-400" />
+                  )}
+                  <span className="text-default-500">Access</span>
+                </div>
+                <Chip size="sm" variant="flat" color={cohort.accessMode === "anyone" ? "success" : "warning"} className="cursor-pointer">
+                  {cohort.accessMode === "anyone" ? "Open" : "Restricted"}
+                </Chip>
+              </div>
+            </div>
+
+            {/* Action Buttons */}
+            <div className="flex gap-2 pt-2 border-t border-default-200">
+              <Button
+                size="sm"
+                color="primary"
+                variant="flat"
+                startContent={<Share2 className="w-3.5 h-3.5" />}
+                onPress={() => onShare(cohort.id)}
+                className="flex-1"
+              >
+                Invite
+              </Button>
+              <Button
+                size="sm"
+                variant="bordered"
+                onPress={() => onEdit(cohort.id)}
+                className="flex-1"
+              >
+                Edit All
+              </Button>
               <Button
                 size="sm"
                 variant="light"
                 isIconOnly
-                onPress={handleCopyCode}
-                title="Copy access code"
+                color="danger"
+                onPress={() => onDelete(cohort.id)}
+                title="Delete cohort"
               >
-                <Copy className="w-3.5 h-3.5" />
+                <Trash2 className="w-3.5 h-3.5" />
               </Button>
             </div>
           </div>
+        </CardBody>
+      </Card>
 
-          {/* Action Buttons */}
-          <div className="flex gap-2 pt-2 border-t border-default-200">
-            <Button
-              size="sm"
-              variant="flat"
-              startContent={<Pencil className="w-3.5 h-3.5" />}
-              onPress={handleEdit}
-              className="flex-1"
-            >
-              Edit
+      {/* Edit Available Date Modal */}
+      <Modal isOpen={editField === "available"} onClose={() => setEditField(null)} size="sm">
+        <ModalContent>
+          <ModalHeader>Edit Available Date</ModalHeader>
+          <ModalBody>
+            <Input
+              type="date"
+              label="Available From"
+              value={availableDate}
+              onChange={(e) => setAvailableDate(e.target.value)}
+              description="Leave empty for 'Now' (immediately available)"
+            />
+          </ModalBody>
+          <ModalFooter>
+            <Button variant="light" onPress={() => setEditField(null)}>Cancel</Button>
+            <Button variant="light" color="warning" onPress={() => { setAvailableDate(""); }}>
+              Set to Now
             </Button>
-            <Button
-              size="sm"
-              variant="flat"
-              startContent={<Eye className="w-3.5 h-3.5" />}
-              onPress={handleViewLearners}
-              className="flex-1"
-            >
-              Learners
-            </Button>
-            <Button
-              size="sm"
-              variant="light"
-              isIconOnly
-              color="danger"
-              onPress={handleDelete}
-              title="Delete cohort"
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-            </Button>
-          </div>
+            <Button color="primary" isLoading={saving} onPress={handleSave}>Save</Button>
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
 
-          {/* Copy Link Button */}
-          <Button
-            size="sm"
-            variant="bordered"
-            fullWidth
-            startContent={<Copy className="w-3.5 h-3.5" />}
-            onPress={handleCopyLink}
-          >
-            Copy Join Link
-          </Button>
-        </div>
-      </CardBody>
-    </Card>
+      {/* Edit Expiration Date Modal */}
+      <Modal isOpen={editField === "expires"} onClose={() => setEditField(null)} size="sm">
+        <ModalContent>
+          <ModalHeader>Edit Expiration Date</ModalHeader>
+          <ModalBody>
+            <Input
+              type="date"
+              label="Expires On"
+              value={expirationDate}
+              onChange={(e) => setExpirationDate(e.target.value)}
+              description="Leave empty for 'Never' (no expiration)"
+            />
+          </ModalBody>
+          <ModalFooter>
+            <Button variant="light" onPress={() => setEditField(null)}>Cancel</Button>
+            <Button variant="light" color="warning" onPress={() => { setExpirationDate(""); }}>
+              Set to Never
+            </Button>
+            <Button color="primary" isLoading={saving} onPress={handleSave}>Save</Button>
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
+
+      {/* Edit Access Mode Modal */}
+      <Modal isOpen={editField === "access"} onClose={() => setEditField(null)} size="sm">
+        <ModalContent>
+          <ModalHeader>Edit Access Mode</ModalHeader>
+          <ModalBody>
+            <Select
+              label="Access Mode"
+              selectedKeys={[accessMode]}
+              onSelectionChange={(keys) => {
+                const selected = Array.from(keys)[0] as string;
+                if (selected === "anyone" || selected === "specific") {
+                  setAccessMode(selected);
+                }
+              }}
+            >
+              <SelectItem key="anyone">Open - Anyone with code can join</SelectItem>
+              <SelectItem key="specific">Restricted - Only invited emails</SelectItem>
+            </Select>
+          </ModalBody>
+          <ModalFooter>
+            <Button variant="light" onPress={() => setEditField(null)}>Cancel</Button>
+            <Button color="primary" isLoading={saving} onPress={handleSave}>Save</Button>
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
+    </>
   );
 }

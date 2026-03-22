@@ -8,7 +8,7 @@
 import { prisma } from "./prisma";
 import type {
   Cohort as PrismaCohort,
-  Student as PrismaStudent,
+  User as PrismaUser,
   Case as PrismaCase,
   Attempt as PrismaAttempt,
   CaseAssignment,
@@ -123,15 +123,15 @@ function cohortToCourseSection(cohort: PrismaCohort): CourseSection {
   };
 }
 
-function prismaStudentToStudent(
-  s: PrismaStudent & { assignments: CaseAssignment[] }
+function prismaUserToStudent(
+  u: PrismaUser & { assignments: CaseAssignment[] }
 ): Student {
   return {
-    id: s.id,
-    name: s.displayName || s.email.split("@")[0],
-    email: s.email,
-    studentNumber: s.studentNumber || s.email.split("@")[0],
-    sectionIds: s.assignments
+    id: u.id,
+    name: u.name || u.email.split("@")[0],
+    email: u.email,
+    studentNumber: u.studentNumber || u.email.split("@")[0],
+    sectionIds: u.assignments
       .map((a) => a.cohortId)
       .filter((id): id is string => id !== null),
   };
@@ -225,7 +225,7 @@ export async function searchSections(query: string): Promise<CourseSection[]> {
 export async function getStudentsBySection(
   sectionId: string
 ): Promise<Student[]> {
-  const students = await prisma.student.findMany({
+  const users = await prisma.user.findMany({
     where: {
       assignments: {
         some: { cohortId: sectionId },
@@ -234,9 +234,9 @@ export async function getStudentsBySection(
     include: {
       assignments: true,
     },
-    orderBy: { displayName: "asc" },
+    orderBy: { name: "asc" },
   });
-  return students.map(prismaStudentToStudent);
+  return users.map(prismaUserToStudent);
 }
 
 /**
@@ -246,7 +246,7 @@ export async function searchStudents(
   query: string,
   sectionId?: string
 ): Promise<Student[]> {
-  const students = await prisma.student.findMany({
+  const users = await prisma.user.findMany({
     where: {
       AND: [
         sectionId
@@ -258,7 +258,7 @@ export async function searchStudents(
           : {},
         {
           OR: [
-            { displayName: { contains: query, mode: "insensitive" } },
+            { name: { contains: query, mode: "insensitive" } },
             { email: { contains: query, mode: "insensitive" } },
             { studentNumber: { contains: query, mode: "insensitive" } },
           ],
@@ -268,9 +268,9 @@ export async function searchStudents(
     include: {
       assignments: true,
     },
-    orderBy: { displayName: "asc" },
+    orderBy: { name: "asc" },
   });
-  return students.map(prismaStudentToStudent);
+  return users.map(prismaUserToStudent);
 }
 
 /**
@@ -340,15 +340,15 @@ export async function getSectionById(
  * Get student by ID
  */
 export async function getStudentById(
-  studentId: string
+  visibleId: string
 ): Promise<Student | null> {
-  const student = await prisma.student.findUnique({
-    where: { id: studentId },
+  const user = await prisma.user.findUnique({
+    where: { id: visibleId },
     include: {
       assignments: true,
     },
   });
-  return student ? prismaStudentToStudent(student) : null;
+  return user ? prismaUserToStudent(user) : null;
 }
 
 /**
@@ -369,14 +369,14 @@ export async function getCaseById(caseId: string): Promise<Case | null> {
  */
 export async function getStudentHistoryDetail(
   sectionId: string,
-  studentId: string,
+  visibleId: string,
   caseId: string,
   timeRange: TimeRangeOption
 ): Promise<StudentHistoryDetail | null> {
-  const [cohort, student, caseData, attempts] = await Promise.all([
+  const [cohort, user, caseData, attempts] = await Promise.all([
     prisma.cohort.findUnique({ where: { id: sectionId } }),
-    prisma.student.findUnique({
-      where: { id: studentId },
+    prisma.user.findUnique({
+      where: { id: visibleId },
       include: { assignments: true },
     }),
     prisma.case.findUnique({
@@ -385,7 +385,7 @@ export async function getStudentHistoryDetail(
     }),
     prisma.attempt.findMany({
       where: {
-        studentId,
+        userId: visibleId,
         caseId,
         createdAt: { gte: getTimeRangeDate(timeRange) },
       },
@@ -393,12 +393,12 @@ export async function getStudentHistoryDetail(
     }),
   ]);
 
-  if (!cohort || !student || !caseData) {
+  if (!cohort || !user || !caseData) {
     return null;
   }
 
   const section = cohortToCourseSection(cohort);
-  const studentMapped = prismaStudentToStudent(student);
+  const studentMapped = prismaUserToStudent(user);
   const caseMapped = prismaCaseToCase(caseData);
   const attemptsMapped = attempts.map(prismaAttemptToStudentAttempt);
 
@@ -473,7 +473,7 @@ export async function getStudentHistoryDetail(
  */
 export async function getTimeUsageDetails(
   sectionId: string,
-  studentId: string,
+  visibleId: string,
   caseId: string,
   attemptNumber?: number
 ): Promise<{
@@ -485,8 +485,8 @@ export async function getTimeUsageDetails(
   totalTimeMinutes: number;
   peakActivityHour: number;
 }> {
-  const whereClause: { studentId: string; caseId: string; attemptNumber?: number } = {
-    studentId,
+  const whereClause: { userId: string; caseId: string; attemptNumber?: number } = {
+    userId: visibleId,
     caseId,
   };
   if (attemptNumber !== undefined) {
@@ -532,7 +532,7 @@ export async function getTimeUsageDetails(
  */
 export async function getConversationDetails(
   sectionId: string,
-  studentId: string,
+  visibleId: string,
   caseId: string,
   attemptNumber?: number
 ): Promise<{
@@ -544,8 +544,8 @@ export async function getConversationDetails(
     preview: string;
   }>;
 }> {
-  const whereClause: { studentId: string; caseId: string; attemptNumber?: number } = {
-    studentId,
+  const whereClause: { userId: string; caseId: string; attemptNumber?: number } = {
+    userId: visibleId,
     caseId,
   };
   if (attemptNumber !== undefined) {
@@ -573,7 +573,7 @@ export async function getConversationDetails(
  */
 export async function getScoreDetails(
   sectionId: string,
-  studentId: string,
+  visibleId: string,
   caseId: string
 ): Promise<{
   attempts: Array<{
@@ -589,9 +589,9 @@ export async function getScoreDetails(
   classAverage: number;
   percentile: number;
 }> {
-  const [studentAttempts, allAttempts] = await Promise.all([
+  const [userAttempts, allAttempts] = await Promise.all([
     prisma.attempt.findMany({
-      where: { studentId, caseId },
+      where: { userId: visibleId, caseId },
       orderBy: { attemptNumber: "asc" },
     }),
     prisma.attempt.findMany({
@@ -599,7 +599,7 @@ export async function getScoreDetails(
     }),
   ]);
 
-  const attempts = studentAttempts
+  const attempts = userAttempts
     .filter((a) => a.score !== null)
     .map((a) => ({
       attemptNumber: a.attemptNumber,
@@ -616,15 +616,15 @@ export async function getScoreDetails(
       ? Math.round(allScores.reduce((a, b) => a + b, 0) / allScores.length)
       : 0;
 
-  const studentBestScore =
-    studentAttempts.length > 0
+  const userBestScore =
+    userAttempts.length > 0
       ? Math.max(
-          ...studentAttempts
+          ...userAttempts
             .map((a) => a.score)
             .filter((s): s is number => s !== null)
         )
       : 0;
-  const belowCount = allScores.filter((s) => s < studentBestScore).length;
+  const belowCount = allScores.filter((s) => s < userBestScore).length;
   const percentile =
     allScores.length > 0 ? Math.round((belowCount / allScores.length) * 100) : 0;
 
@@ -640,7 +640,7 @@ export async function getScoreDetails(
  */
 export async function getLearningCurveDetails(
   sectionId: string,
-  studentId: string,
+  visibleId: string,
   caseId: string
 ): Promise<{
   dataPoints: Array<{
@@ -654,7 +654,7 @@ export async function getLearningCurveDetails(
   predictedNextScore: number | null;
 }> {
   const attempts = await prisma.attempt.findMany({
-    where: { studentId, caseId },
+    where: { userId: visibleId, caseId },
     orderBy: { attemptNumber: "asc" },
   });
 
@@ -776,7 +776,7 @@ export async function getClassGradebook(
     return null;
   }
 
-  const studentsInSection = await prisma.student.findMany({
+  const usersInSection = await prisma.user.findMany({
     where: {
       assignments: {
         some: { cohortId: sectionId },
@@ -789,29 +789,29 @@ export async function getClassGradebook(
         orderBy: { attemptNumber: "asc" },
       },
     },
-    orderBy: { displayName: "asc" },
+    orderBy: { name: "asc" },
   });
 
-  const studentRows: StudentGradebookRow[] = studentsInSection.map((student) => {
-    const attempts = student.attempts.map(prismaAttemptToStudentAttempt);
-    const scores = student.attempts
+  const studentRows: StudentGradebookRow[] = usersInSection.map((user) => {
+    const attempts = user.attempts.map(prismaAttemptToStudentAttempt);
+    const scores = user.attempts
       .map((a) => a.score)
       .filter((s): s is number => s !== null);
 
     return {
-      studentId: student.id,
-      studentName: student.displayName || student.email.split("@")[0],
-      studentNumber: student.studentNumber || student.email.split("@")[0],
+      studentId: user.id,
+      studentName: user.name || user.email.split("@")[0],
+      studentNumber: user.studentNumber || user.email.split("@")[0],
       attempts,
       bestScore: scores.length > 0 ? Math.max(...scores) : null,
-      firstAttemptScore: student.attempts[0]?.score ?? null,
+      firstAttemptScore: user.attempts[0]?.score ?? null,
       latestAttemptScore:
-        student.attempts.length > 0
-          ? student.attempts[student.attempts.length - 1].score
+        user.attempts.length > 0
+          ? user.attempts[user.attempts.length - 1].score
           : null,
       maxAttemptNumber:
-        student.attempts.length > 0
-          ? Math.max(...student.attempts.map((a) => a.attemptNumber))
+        user.attempts.length > 0
+          ? Math.max(...user.attempts.map((a) => a.attemptNumber))
           : 0,
     };
   });
@@ -946,7 +946,7 @@ export async function getClassProcessAnalytics(
   sectionId: string,
   caseId: string
 ): Promise<ClassProcessAnalytics> {
-  const studentsInSection = await prisma.student.findMany({
+  const usersInSection = await prisma.user.findMany({
     where: {
       assignments: {
         some: { cohortId: sectionId },
@@ -959,7 +959,7 @@ export async function getClassProcessAnalytics(
     },
   });
 
-  const allAttempts = studentsInSection.flatMap((s) => s.attempts);
+  const allAttempts = usersInSection.flatMap((u) => u.attempts);
 
   const timesMinutes = allAttempts
     .map((a) => Math.round((a.totalTimeSeconds || 0) / 60))
@@ -994,17 +994,17 @@ export async function getClassProcessAnalytics(
  */
 export async function getStudentOverview(
   sectionId: string,
-  studentId: string
+  visibleId: string
 ): Promise<StudentOverviewData | null> {
-  const [cohort, student] = await Promise.all([
+  const [cohort, user] = await Promise.all([
     prisma.cohort.findUnique({ where: { id: sectionId } }),
-    prisma.student.findUnique({
-      where: { id: studentId },
+    prisma.user.findUnique({
+      where: { id: visibleId },
       include: { assignments: true },
     }),
   ]);
 
-  if (!cohort || !student) {
+  if (!cohort || !user) {
     return null;
   }
 
@@ -1017,7 +1017,7 @@ export async function getStudentOverview(
     include: {
       assignments: true,
       attempts: {
-        where: { studentId },
+        where: { userId: visibleId },
         orderBy: { attemptNumber: "asc" },
       },
     },
@@ -1048,7 +1048,7 @@ export async function getStudentOverview(
   });
 
   return {
-    student: prismaStudentToStudent(student),
+    student: prismaUserToStudent(user),
     section: cohortToCourseSection(cohort),
     casesWithScores,
   };
