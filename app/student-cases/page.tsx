@@ -5,11 +5,13 @@ import { useRouter } from "next/navigation";
 import { Card, CardBody, CardHeader } from "@heroui/card";
 import { Button } from "@heroui/button";
 import { Chip } from "@heroui/chip";
-import { Briefcase, BookOpen, Users, RefreshCw } from "lucide-react";
+import { Briefcase, BookOpen, Users, RefreshCw, UserPlus, X } from "lucide-react";
+import { addToast } from "@heroui/toast";
 
 import { title } from "@/components/primitives";
 import { useAuth } from "@/lib/auth-context";
 import type { CaseStudy } from "@/types";
+import type { Cohort } from "@/types/cohort";
 
 interface StudentCaseWithCohort extends CaseStudy {
   cohortId?: string;
@@ -29,6 +31,90 @@ export default function StudentCasesPage() {
   const [cohorts, setCohorts] = useState<StudentCohort[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Pending cohort join state
+  const [pendingCohort, setPendingCohort] = useState<Cohort | null>(null);
+  const [pendingAccessCode, setPendingAccessCode] = useState<string | null>(null);
+  const [joiningCohort, setJoiningCohort] = useState(false);
+
+  // Check for pending cohort join on mount
+  useEffect(() => {
+    const savedAccessCode = localStorage.getItem("pendingCohortJoin");
+    if (savedAccessCode) {
+      setPendingAccessCode(savedAccessCode);
+      fetchPendingCohort(savedAccessCode);
+    }
+  }, []);
+
+  const fetchPendingCohort = async (accessCode: string) => {
+    try {
+      const response = await fetch(`/api/cohort/get?accessCode=${accessCode}`);
+      if (response.ok) {
+        const data = await response.json();
+        if (data.cohort) {
+          setPendingCohort(data.cohort);
+        } else {
+          // Invalid access code, clear it
+          localStorage.removeItem("pendingCohortJoin");
+          setPendingAccessCode(null);
+        }
+      } else {
+        localStorage.removeItem("pendingCohortJoin");
+        setPendingAccessCode(null);
+      }
+    } catch (err) {
+      console.error("Error fetching pending cohort:", err);
+      localStorage.removeItem("pendingCohortJoin");
+      setPendingAccessCode(null);
+    }
+  };
+
+  const handleJoinPendingCohort = async () => {
+    if (!user?.email || !pendingAccessCode) return;
+
+    setJoiningCohort(true);
+    try {
+      const response = await fetch("/api/cohort/join", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          accessCode: pendingAccessCode,
+          email: user.email.trim().toLowerCase(),
+          name: user.name || undefined,
+        }),
+      });
+
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || "Failed to join cohort");
+      }
+
+      // Clear pending state
+      localStorage.removeItem("pendingCohortJoin");
+      setPendingCohort(null);
+      setPendingAccessCode(null);
+
+      addToast({
+        title: "Success!",
+        description: `You have joined ${pendingCohort?.name}`,
+        color: "success",
+      });
+
+      // Reload cases to show the new cohort
+      loadCases();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Failed to join cohort";
+      addToast({ title: "Error", description: msg, color: "danger" });
+    } finally {
+      setJoiningCohort(false);
+    }
+  };
+
+  const handleDismissPendingCohort = () => {
+    localStorage.removeItem("pendingCohortJoin");
+    setPendingCohort(null);
+    setPendingAccessCode(null);
+  };
 
   const loadCases = async () => {
     if (!user?.email) {
@@ -76,6 +162,60 @@ export default function StudentCasesPage() {
 
   return (
     <div className="flex flex-col gap-8">
+      {/* Pending Cohort Join Card */}
+      {pendingCohort && (
+        <Card className="bg-primary-50 border-2 border-primary-200">
+          <CardBody>
+            <div className="flex items-start gap-4">
+              <div className="p-3 bg-primary-100 rounded-full">
+                <UserPlus className="w-6 h-6 text-primary" />
+              </div>
+              <div className="flex-1">
+                <h3 className="text-lg font-semibold text-primary-800">
+                  Join {pendingCohort.name}?
+                </h3>
+                {pendingCohort.description && (
+                  <p className="text-sm text-primary-700 mt-1">
+                    {pendingCohort.description}
+                  </p>
+                )}
+                {pendingCohort.professorName && (
+                  <p className="text-xs text-primary-600 mt-1">
+                    Instructor: {pendingCohort.professorName}
+                  </p>
+                )}
+                <div className="flex gap-2 mt-4">
+                  <Button
+                    color="primary"
+                    size="sm"
+                    isLoading={joiningCohort}
+                    onPress={handleJoinPendingCohort}
+                  >
+                    {joiningCohort ? "Joining..." : "Join This Cohort"}
+                  </Button>
+                  <Button
+                    variant="light"
+                    size="sm"
+                    onPress={handleDismissPendingCohort}
+                  >
+                    Not Now
+                  </Button>
+                </div>
+              </div>
+              <Button
+                isIconOnly
+                variant="light"
+                size="sm"
+                onPress={handleDismissPendingCohort}
+                className="text-primary-400"
+              >
+                <X className="w-4 h-4" />
+              </Button>
+            </div>
+          </CardBody>
+        </Card>
+      )}
+
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div className="flex flex-col gap-2">
           <h1 className={title()}>

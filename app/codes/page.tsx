@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@heroui/button";
 import { Chip } from "@heroui/chip";
+import { Input } from "@heroui/input";
 import {
   Modal,
   ModalContent,
@@ -20,6 +21,9 @@ import {
   Pencil,
   Eye,
   Trash2,
+  Share2,
+  Link,
+  Check,
 } from "lucide-react";
 import { addToast } from "@heroui/toast";
 import { title } from "@/components/primitives";
@@ -72,6 +76,10 @@ export default function CodesPage() {
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const [codeToDelete, setCodeToDelete] = useState<CachedCohort | null>(null);
   const [deleting, setDeleting] = useState(false);
+
+  const [shareModalOpen, setShareModalOpen] = useState(false);
+  const [codeToShare, setCodeToShare] = useState<CachedCohort | null>(null);
+  const [copiedField, setCopiedField] = useState<"code" | "link" | null>(null);
 
   useEffect(() => {
     loadCodes();
@@ -142,28 +150,51 @@ export default function CodesPage() {
     router.push("/codes/new/edit");
   };
 
-  const copyToClipboard = (text: string, successMessage: string) => {
+  const handleUpdate = async (cohortId: string, updates: Partial<CachedCohort>) => {
+    const cohort = codes.find((c) => c.id === cohortId);
+    if (!cohort) return;
+
+    await cohortStorage.update(cohortId, updates);
+    const updatedCohort = { ...cohort, ...updates };
+    setCodes((prev) => prev.map((c) => (c.id === cohortId ? updatedCohort : c)));
+  };
+
+  const handleShareClick = (codeId: string) => {
+    const code = codes.find((c) => c.id === codeId);
+    if (code) {
+      setCodeToShare(code);
+      setShareModalOpen(true);
+      setCopiedField(null);
+    }
+  };
+
+  const copyToClipboard = (text: string, field: "code" | "link") => {
     if (!text) return;
+
+    const successMessage = field === "code" ? "Access code copied" : "Join link copied";
 
     if (navigator?.clipboard?.writeText) {
       navigator.clipboard
         .writeText(text)
         .then(() => {
+          setCopiedField(field);
           addToast({
             title: "Copied",
             description: successMessage,
             color: "success",
           });
+          setTimeout(() => setCopiedField(null), 2000);
         })
         .catch(() => {
-          fallbackCopy(text, successMessage);
+          fallbackCopy(text, field);
         });
     } else {
-      fallbackCopy(text, successMessage);
+      fallbackCopy(text, field);
     }
   };
 
-  const fallbackCopy = (text: string, successMessage: string) => {
+  const fallbackCopy = (text: string, field: "code" | "link") => {
+    const successMessage = field === "code" ? "Access code copied" : "Join link copied";
     const textArea = document.createElement("textarea");
     textArea.value = text;
     textArea.style.position = "fixed";
@@ -175,11 +206,13 @@ export default function CodesPage() {
 
     try {
       document.execCommand("copy");
+      setCopiedField(field);
       addToast({
         title: "Copied",
         description: successMessage,
         color: "success",
       });
+      setTimeout(() => setCopiedField(null), 2000);
     } catch {
       addToast({
         title: "Copy failed",
@@ -266,6 +299,8 @@ export default function CodesPage() {
               onEdit={handleEdit}
               onViewLearners={handleViewLearners}
               onDelete={handleDeleteClick}
+              onShare={handleShareClick}
+              onUpdate={handleUpdate}
             />
           ))}
         </div>
@@ -282,7 +317,6 @@ export default function CodesPage() {
                 <th className="text-left p-3 font-medium">Expires</th>
                 <th className="text-left p-3 font-medium">Access</th>
                 <th className="text-left p-3 font-medium">Learners</th>
-                <th className="text-left p-3 font-medium">Access Code</th>
                 <th className="text-left p-3 font-medium">Actions</th>
               </tr>
             </thead>
@@ -329,28 +363,17 @@ export default function CodesPage() {
                     </td>
                     <td className="p-3">{code.students?.length || 0}</td>
                     <td className="p-3">
-                      <div className="flex items-center gap-1">
-                        <code className="font-mono text-sm">
-                          {code.accessCode}
-                        </code>
+                      <div className="flex gap-1">
                         <Button
                           size="sm"
-                          variant="light"
-                          isIconOnly
-                          onPress={() =>
-                            copyToClipboard(
-                              getJoinLink(code.accessCode),
-                              "Join link copied"
-                            )
-                          }
-                          title="Copy join link"
+                          variant="flat"
+                          color="primary"
+                          startContent={<Share2 className="w-3.5 h-3.5" />}
+                          onPress={() => handleShareClick(code.id)}
+                          title="Invite students"
                         >
-                          <Copy className="w-3.5 h-3.5" />
+                          Invite
                         </Button>
-                      </div>
-                    </td>
-                    <td className="p-3">
-                      <div className="flex gap-1">
                         <Button
                           size="sm"
                           variant="light"
@@ -429,6 +452,105 @@ export default function CodesPage() {
               onPress={handleDeleteConfirm}
             >
               {deleting ? "Deleting..." : "Delete"}
+            </Button>
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
+
+      {/* Share/Invite Modal */}
+      <Modal 
+        isOpen={shareModalOpen} 
+        onClose={() => {
+          setShareModalOpen(false);
+          setCopiedField(null);
+        }}
+        size="lg"
+      >
+        <ModalContent>
+          <ModalHeader className="flex items-center gap-2">
+            <Share2 className="w-5 h-5 text-primary" />
+            Invite Students to {codeToShare?.name}
+          </ModalHeader>
+          <ModalBody className="space-y-4">
+            <p className="text-default-500 text-sm">
+              Share the access code or join link with your students so they can enroll in this cohort.
+            </p>
+            
+            {/* Access Code */}
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Access Code</label>
+              <div className="flex gap-2">
+                <Input
+                  value={codeToShare?.accessCode || ""}
+                  readOnly
+                  classNames={{
+                    input: "font-mono font-bold text-lg",
+                  }}
+                />
+                <Button
+                  color={copiedField === "code" ? "success" : "primary"}
+                  variant="flat"
+                  startContent={copiedField === "code" ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+                  onPress={() => copyToClipboard(codeToShare?.accessCode || "", "code")}
+                >
+                  {copiedField === "code" ? "Copied!" : "Copy"}
+                </Button>
+              </div>
+            </div>
+
+            {/* Join Link */}
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Join Link</label>
+              <div className="flex gap-2">
+                <Input
+                  value={codeToShare ? getJoinLink(codeToShare.accessCode) : ""}
+                  readOnly
+                  startContent={<Link className="w-4 h-4 text-default-400" />}
+                  classNames={{
+                    input: "text-sm",
+                  }}
+                />
+                <Button
+                  color={copiedField === "link" ? "success" : "primary"}
+                  variant="flat"
+                  startContent={copiedField === "link" ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+                  onPress={() => copyToClipboard(codeToShare ? getJoinLink(codeToShare.accessCode) : "", "link")}
+                >
+                  {copiedField === "link" ? "Copied!" : "Copy"}
+                </Button>
+              </div>
+              <p className="text-xs text-default-400">
+                Students can visit this link directly to join the cohort.
+              </p>
+            </div>
+
+            {/* Access Mode Info */}
+            <div className="p-3 bg-default-100 rounded-lg">
+              <div className="flex items-center gap-2">
+                <Chip
+                  size="sm"
+                  variant="flat"
+                  color={codeToShare?.accessMode === "anyone" ? "success" : "warning"}
+                >
+                  {codeToShare?.accessMode === "anyone" ? "Open Access" : "Restricted Access"}
+                </Chip>
+              </div>
+              <p className="text-xs text-default-500 mt-2">
+                {codeToShare?.accessMode === "anyone"
+                  ? "Anyone with the access code can join this cohort."
+                  : "Only pre-approved email addresses can join this cohort."}
+              </p>
+            </div>
+          </ModalBody>
+          <ModalFooter>
+            <Button
+              variant="bordered"
+              onPress={() => {
+                setShareModalOpen(false);
+                setCopiedField(null);
+              }}
+            >
+              Close
             </Button>
           </ModalFooter>
         </ModalContent>

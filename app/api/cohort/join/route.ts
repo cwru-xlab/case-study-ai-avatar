@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { s3Storage } from "@/lib/s3-client";
+import { prisma } from "@/lib/prisma";
 
 export async function POST(request: NextRequest) {
   try {
@@ -72,7 +73,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Check if student already exists
+    // Check if student already exists in S3 cohort
     const existingStudent = cohort.students?.find(
       (s) => s.email.toLowerCase() === normalizedEmail
     );
@@ -95,9 +96,28 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // Update cohort
+    // Update cohort in S3
     cohort.updatedAt = new Date().toISOString();
     await s3Storage.saveCohort(cohort);
+
+    // Also create/update User in Prisma database for learning records
+    try {
+      await prisma.user.upsert({
+        where: { email: normalizedEmail },
+        update: {
+          name: name || undefined,
+          updatedAt: new Date(),
+        },
+        create: {
+          email: normalizedEmail,
+          name: name || undefined,
+          role: "student",
+        },
+      });
+    } catch (dbError) {
+      // Log but don't fail - S3 is the primary storage
+      console.error("Failed to sync user to database:", dbError);
+    }
 
     return NextResponse.json({
       success: true,
