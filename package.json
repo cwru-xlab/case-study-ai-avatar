@@ -36,7 +36,7 @@
     "@heroui/theme": "^2.4.26",
     "@heroui/toast": "^2.0.22",
     "@heroui/tooltip": "^2.2.29",
-    "@heygen/streaming-avatar": "^2.1.0",
+    "@heygen/liveavatar-web-sdk": "^0.0.11",
     "@mozilla/readability": "^0.6.0",
     "@pinecone-database/pinecone": "^6.1.4",
     "@react-aria/ssr": "3.9.10",
