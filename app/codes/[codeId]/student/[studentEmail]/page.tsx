@@ -395,6 +395,10 @@ function CaseDetailView({ data, studentEmail }: { data: CaseDetailData; studentE
                     case "receive_message":
                       label = `${event.roleName} → Student: ${(event.messageContent || "").substring(0, 80)}${(event.messageContent || "").length > 80 ? "..." : ""}`;
                       break;
+                    case "switch_interaction_mode":
+                      label = `Switched to ${event.interactionMode === "avatar" ? "Avatar" : "Text"} mode${event.roleName ? ` (${event.roleName})` : ""}`;
+                      color = "secondary";
+                      break;
                     case "end_session":
                       label = "Session ended";
                       color = "danger";
