@@ -21,6 +21,7 @@ import {
   Video,
   Mic,
   MicOff,
+  RotateCcw,
 } from "lucide-react";
 import {
   Modal,
@@ -32,11 +33,24 @@ import {
 import { addToast } from "@heroui/toast";
 import { title } from "@/components/primitives";
 import { useAuth } from "@/lib/auth-context";
-import type { CaseStudy, CaseAvatar, InteractionLog, RoleMessage, InteractionEvent, StartAvatarRequest, VideoAudioProfile } from "@/types";
+import type { CaseStudy, CaseAvatar, InteractionLog, RoleMessage, RoleInteraction, InteractionEvent, StartAvatarRequest, VideoAudioProfile } from "@/types";
 import InteractiveAvatarWrapper, { InteractiveAvatarRef } from "@/components/HeyGenAvatar/InteractiveAvatar";
 
 type PageState = "intro" | "playing";
 type InteractionMode = "text" | "avatar";
+
+interface InteractionIndexEntry {
+  id: string;
+  attemptNumber: number;
+  mode: string;
+  status: string;
+  startedAt: number;
+  completedAt?: number;
+  totalMessages: number;
+  totalTimeSeconds: number;
+  evalScore?: number;
+  updatedAt: string;
+}
 
 export default function CasePlayPage() {
   const params = useParams();
@@ -51,6 +65,10 @@ export default function CasePlayPage() {
   const [pageState, setPageState] = useState<PageState>("intro");
   const [interactionLog, setInteractionLog] = useState<InteractionLog | null>(null);
   const [mode, setMode] = useState<"explore" | "assessed">("assessed");
+
+  // Unfinished session state
+  const [unfinishedSessions, setUnfinishedSessions] = useState<InteractionIndexEntry[]>([]);
+  const [resuming, setResuming] = useState(false);
 
   // Role interaction state
   const [selectedRole, setSelectedRole] = useState<CaseAvatar | null>(null);
@@ -80,6 +98,30 @@ export default function CasePlayPage() {
   useEffect(() => {
     loadCase();
   }, [caseId]);
+
+  // Load unfinished sessions once we have user + caseId
+  useEffect(() => {
+    if (user?.email && caseId) {
+      loadUnfinishedSessions();
+    }
+  }, [user?.email, caseId]);
+
+  const loadUnfinishedSessions = async () => {
+    if (!user?.email) return;
+    try {
+      const res = await fetch(
+        `/api/interaction/get?studentEmail=${encodeURIComponent(user.email)}&caseId=${encodeURIComponent(caseId)}`
+      );
+      if (!res.ok) return;
+      const data = await res.json();
+      const inProgress = (data.logs || []).filter(
+        (entry: InteractionIndexEntry) => entry.status === "in_progress"
+      );
+      setUnfinishedSessions(inProgress);
+    } catch (err) {
+      console.error("Failed to load unfinished sessions:", err);
+    }
+  };
 
   const loadCase = async () => {
     try {
@@ -183,6 +225,46 @@ export default function CasePlayPage() {
     } catch (err) {
       console.error("Failed to start:", err);
       addToast({ title: "Failed to start session", color: "danger" });
+    }
+  };
+
+  const handleResume = async (session: InteractionIndexEntry) => {
+    if (!user?.email || !caseData) return;
+
+    setResuming(true);
+    try {
+      const res = await fetch(
+        `/api/interaction/get?studentEmail=${encodeURIComponent(user.email)}&caseId=${encodeURIComponent(caseId)}&logId=${encodeURIComponent(session.id)}`
+      );
+      if (!res.ok) throw new Error("Failed to load session");
+      const data = await res.json();
+      const log: InteractionLog = data.log;
+
+      // Restore chat messages from the interaction log
+      const restoredMessages: Record<string, RoleMessage[]> = {};
+      for (const [roleId, roleInteraction] of Object.entries(log.roleInteractions) as [string, RoleInteraction][]) {
+        if (roleInteraction.messages.length > 0) {
+          restoredMessages[roleId] = roleInteraction.messages;
+        }
+      }
+
+      // Add a resume event
+      log.events.push({
+        type: "start_session",
+        timestamp: Date.now(),
+      });
+
+      setMode(log.mode);
+      setInteractionLog(log);
+      setChatMessages(restoredMessages);
+      setPageState("playing");
+
+      addToast({ title: "Session resumed", color: "success" });
+    } catch (err) {
+      console.error("Failed to resume session:", err);
+      addToast({ title: "Failed to resume session", color: "danger" });
+    } finally {
+      setResuming(false);
     }
   };
 
@@ -573,6 +655,60 @@ export default function CasePlayPage() {
                   <div key={avatar.id} className="p-4 bg-default-50 rounded-lg">
                     <p className="font-semibold">{avatar.name}</p>
                     <p className="text-sm text-default-500">{avatar.role}</p>
+                  </div>
+                ))}
+              </div>
+            </CardBody>
+          </Card>
+        )}
+
+        {unfinishedSessions.length > 0 && (
+          <Card className="border-2 border-warning/40">
+            <CardHeader>
+              <div className="flex items-center gap-2">
+                <RotateCcw className="w-5 h-5 text-warning" />
+                <h2 className="text-xl font-semibold">Unfinished Sessions</h2>
+              </div>
+            </CardHeader>
+            <CardBody>
+              <p className="text-sm text-default-500 mb-4">
+                You have sessions in progress. You can continue where you left off.
+              </p>
+              <div className="grid gap-3">
+                {unfinishedSessions.map((session) => (
+                  <div
+                    key={session.id}
+                    className="flex items-center justify-between p-4 bg-warning-50 dark:bg-warning-50/10 rounded-lg"
+                  >
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <Chip
+                          size="sm"
+                          variant="flat"
+                          color={session.mode === "assessed" ? "primary" : "default"}
+                        >
+                          {session.mode === "assessed" ? `Attempt #${session.attemptNumber}` : "Explore"}
+                        </Chip>
+                        <span className="text-xs text-default-400">
+                          {session.totalMessages} messages
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2 mt-1">
+                        <Clock className="w-3 h-3 text-default-400" />
+                        <span className="text-xs text-default-500">
+                          Started {new Date(session.startedAt).toLocaleString()}
+                        </span>
+                      </div>
+                    </div>
+                    <Button
+                      color="warning"
+                      variant="flat"
+                      startContent={<RotateCcw className="w-4 h-4" />}
+                      onPress={() => handleResume(session)}
+                      isLoading={resuming}
+                    >
+                      Continue
+                    </Button>
                   </div>
                 ))}
               </div>
