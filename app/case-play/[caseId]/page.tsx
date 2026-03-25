@@ -79,7 +79,6 @@ export default function CasePlayPage() {
   const chatEndRef = useRef<HTMLDivElement>(null);
   const autoSaveRef = useRef<NodeJS.Timeout | null>(null);
   const interactionLogRef = useRef<InteractionLog | null>(null);
-  const chatMessagesRef = useRef<Record<string, RoleMessage[]>>({});
 
   // Interaction mode state (text vs avatar)
   const [interactionMode, setInteractionMode] = useState<InteractionMode>("text");
@@ -144,14 +143,10 @@ export default function CasePlayPage() {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [chatMessages, selectedRole]);
 
-  // Keep refs in sync so auto-save always has the latest data
+  // Keep ref in sync so auto-save always has the latest log
   useEffect(() => {
     interactionLogRef.current = interactionLog;
   }, [interactionLog]);
-
-  useEffect(() => {
-    chatMessagesRef.current = chatMessages;
-  }, [chatMessages]);
 
   // Auto-save every 15 seconds for assessed mode
   useEffect(() => {
@@ -201,13 +196,6 @@ export default function CasePlayPage() {
   const saveInteraction = async (log: InteractionLog) => {
     if (log.mode !== "assessed") return;
     try {
-      // Sync latest chatMessages into the log before saving
-      const currentMessages = chatMessagesRef.current;
-      for (const [roleId, messages] of Object.entries(currentMessages)) {
-        if (log.roleInteractions[roleId]) {
-          log.roleInteractions[roleId].messages = messages;
-        }
-      }
       await fetch("/api/interaction/save", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -590,13 +578,6 @@ export default function CasePlayPage() {
       // Stop avatar session if active
       if (interactionMode === "avatar") {
         avatarRef.current?.stopSession();
-      }
-
-      // Sync chatMessages back into the log to ensure nothing is lost
-      for (const [roleId, messages] of Object.entries(chatMessages)) {
-        if (interactionLog.roleInteractions[roleId]) {
-          interactionLog.roleInteractions[roleId].messages = messages;
-        }
       }
 
       const res = await fetch("/api/interaction/finish", {
