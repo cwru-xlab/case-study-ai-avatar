@@ -60,7 +60,7 @@ const STATUS_CONFIG: Record<
 > = {
   joined: { label: "Joined", color: "success", icon: <CheckCircle className="w-3.5 h-3.5" /> },
   invited: { label: "Invited", color: "warning", icon: <Clock className="w-3.5 h-3.5" /> },
-  active: { label: "Active", color: "success", icon: <CheckCircle className="w-3.5 h-3.5" /> },
+  active: { label: "Enrolled", color: "success", icon: <CheckCircle className="w-3.5 h-3.5" /> },
   completed: { label: "Completed", color: "default", icon: <CheckCircle className="w-3.5 h-3.5" /> },
 };
 
@@ -384,7 +384,7 @@ export default function CodeDetailPage() {
             </div>
             <div>
               <p className="text-2xl font-bold">{studentStats.total}</p>
-              <p className="text-xs text-default-500">Total Learners</p>
+              <p className="text-xs text-default-500">Total Invited Learners</p>
             </div>
           </CardBody>
         </Card>
@@ -395,7 +395,7 @@ export default function CodeDetailPage() {
             </div>
             <div>
               <p className="text-2xl font-bold">{studentStats.active}</p>
-              <p className="text-xs text-default-500">Active</p>
+              <p className="text-xs text-default-500">Enrolled</p>
             </div>
           </CardBody>
         </Card>
