@@ -7,6 +7,7 @@ import { Input } from "@heroui/input";
 import { Card, CardBody, CardHeader } from "@heroui/card";
 import { Chip } from "@heroui/chip";
 import { Spinner } from "@heroui/spinner";
+import { Checkbox } from "@heroui/checkbox";
 import {
   Modal,
   ModalContent,
@@ -17,14 +18,11 @@ import {
 import {
   ArrowLeft,
   Search,
-  UserPlus,
-  Trash2,
   Download,
   RefreshCw,
   Users,
   CheckCircle,
   Clock,
-  XCircle,
   Pencil,
   ArrowUpDown,
   BookOpen,
@@ -34,24 +32,34 @@ import {
   Copy,
   Link,
   Check,
+  CircleDashed,
+  Plus,
 } from "lucide-react";
 import { addToast } from "@heroui/toast";
 import { title as pageTitle } from "@/components/primitives";
 import { cohortStorage } from "@/lib/cohort-storage";
+import { caseStorage } from "@/lib/case-storage";
 import type { CachedCohort, CohortStudent } from "@/types/cohort";
+import type { CaseStudy } from "@/types";
 
 type StudentStatus = CohortStudent["status"];
-type SortField = "name" | "email" | "status" | "score" | "progress";
-type SortDirection = "asc" | "desc";
 type ProgressStatus = "not_started" | "in_progress" | "completed";
 
-interface LearnerWithPerformance extends CohortStudent {
-visibleName: string;
-  assignedCases: number;
-  completedCases: number;
-  progressStatus: ProgressStatus;
+interface CaseScore {
+  caseId: string;
+  caseName: string;
   bestScore: number | null;
-  avgScore: number | null;
+  attemptCount: number;
+  lastAttemptDate: string | null;
+}
+
+interface StudentGradebookEntry {
+  email: string;
+  name: string;
+  cases: CaseScore[];
+  averageScore: number | null;
+  status: StudentStatus;
+  progressStatus: ProgressStatus;
 }
 
 const STATUS_CONFIG: Record<
@@ -73,6 +81,15 @@ const PROGRESS_CONFIG: Record<
   completed: { label: "Completed", color: "success" },
 };
 
+interface GradebookData {
+  students: StudentGradebookEntry[];
+  cases: Array<{ id: string; name: string }>;
+  cohortName: string;
+}
+
+type SortField = "name" | "average" | "status" | string;
+type SortDirection = "asc" | "desc";
+
 export default function CodeDetailPage() {
   const params = useParams();
   const router = useRouter();
@@ -80,20 +97,22 @@ export default function CodeDetailPage() {
 
   const [code, setCode] = useState<CachedCohort | null>(null);
   const [loading, setLoading] = useState(true);
+  const [gradebookData, setGradebookData] = useState<GradebookData | null>(null);
+  const [loadingGradebook, setLoadingGradebook] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [sortField, setSortField] = useState<SortField>("name");
   const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
 
-  const [learnerPerformance, setLearnerPerformance] = useState<Record<string, {
-    assignedCases: number;
-    completedCases: number;
-    bestScore: number | null;
-    avgScore: number | null;
-  }>>({});
-  const [loadingPerformance, setLoadingPerformance] = useState(false);
-
   const [shareModalOpen, setShareModalOpen] = useState(false);
   const [copiedField, setCopiedField] = useState<"code" | "link" | null>(null);
+
+  // Case assignment modal state
+  const [assignCasesModalOpen, setAssignCasesModalOpen] = useState(false);
+  const [availableCases, setAvailableCases] = useState<CaseStudy[]>([]);
+  const [loadingCases, setLoadingCases] = useState(false);
+  const [assignedCaseIds, setAssignedCaseIds] = useState<string[]>([]);
+  const [caseSearchQuery, setCaseSearchQuery] = useState("");
+  const [savingCases, setSavingCases] = useState(false);
 
   useEffect(() => {
     loadCode();
@@ -105,9 +124,7 @@ export default function CodeDetailPage() {
       const data = await cohortStorage.get(codeId);
       if (data) {
         setCode(data);
-        if (data.students && data.students.length > 0) {
-          loadLearnerPerformance(data);
-        }
+        loadGradebook();
       } else {
         addToast({ title: "Cohort not found", color: "danger" });
         router.push("/codes");
@@ -120,102 +137,167 @@ export default function CodeDetailPage() {
     }
   };
 
-  const loadLearnerPerformance = async (codeData: CachedCohort) => {
-    if (!codeData.students || codeData.students.length === 0) return;
-    
-    setLoadingPerformance(true);
+  const loadGradebook = async () => {
+    setLoadingGradebook(true);
     try {
-      const res = await fetch(`/api/codes/${codeData.id}/learner-performance`);
+      const res = await fetch(`/api/codes/${codeId}/gradebook`);
       if (res.ok) {
         const data = await res.json();
-        setLearnerPerformance(data.performance || {});
+        setGradebookData(data);
       }
     } catch (err) {
-      console.error("Failed to load learner performance:", err);
+      console.error("Failed to load gradebook:", err);
     } finally {
-      setLoadingPerformance(false);
+      setLoadingGradebook(false);
     }
   };
 
-  const learnersWithPerformance: LearnerWithPerformance[] = useMemo(() => {
-    if (!code?.students) return [];
-    
-    return code.students.map((student) => {
-      const perf = learnerPerformance[student.email] || {
-        assignedCases: code.assignedCaseIds?.length || 0,
-        completedCases: 0,
-        bestScore: null,
-        avgScore: null,
-      };
+  const loadAvailableCases = async () => {
+    setLoadingCases(true);
+    try {
+      const cases = await caseStorage.list();
+      setAvailableCases(cases);
+    } catch (err) {
+      console.error("Failed to load cases:", err);
+    } finally {
+      setLoadingCases(false);
+    }
+  };
 
+  const openAssignCasesModal = () => {
+    setAssignedCaseIds(code?.assignedCaseIds || []);
+    setCaseSearchQuery("");
+    loadAvailableCases();
+    setAssignCasesModalOpen(true);
+  };
+
+  const toggleCaseAssignment = (caseId: string) => {
+    setAssignedCaseIds((prev) =>
+      prev.includes(caseId) ? prev.filter((id) => id !== caseId) : [...prev, caseId]
+    );
+  };
+
+  const getFilteredCases = () => {
+    let cases = [...availableCases];
+    if (caseSearchQuery.trim()) {
+      const query = caseSearchQuery.toLowerCase();
+      cases = cases.filter((c) => c.name.toLowerCase().includes(query));
+    }
+    // Sort: assigned cases first
+    cases.sort((a, b) => {
+      const aAssigned = assignedCaseIds.includes(a.id) ? 0 : 1;
+      const bAssigned = assignedCaseIds.includes(b.id) ? 0 : 1;
+      if (aAssigned !== bAssigned) return aAssigned - bAssigned;
+      return a.name.localeCompare(b.name);
+    });
+    return cases;
+  };
+
+  const handleSaveCaseAssignments = async () => {
+    if (!code) return;
+    setSavingCases(true);
+    try {
+      await cohortStorage.update(codeId, {
+        assignedCaseIds,
+      });
+      setCode({ ...code, assignedCaseIds });
+      setAssignCasesModalOpen(false);
+      addToast({ title: "Cases updated", color: "success" });
+      loadGradebook();
+    } catch (err) {
+      console.error("Failed to save case assignments:", err);
+      addToast({ title: "Failed to update cases", color: "danger" });
+    } finally {
+      setSavingCases(false);
+    }
+  };
+
+  const studentStats = useMemo(() => {
+    if (!gradebookData) return { total: 0, active: 0, completed: 0, inProgress: 0 };
+    
+    const students = gradebookData.students;
+    const totalCases = gradebookData.cases.length;
+    
+    let completed = 0;
+    let inProgress = 0;
+    
+    students.forEach((student) => {
+      const completedCases = student.cases.filter((c) => c.bestScore !== null).length;
+      if (completedCases >= totalCases && totalCases > 0) {
+        completed++;
+      } else if (completedCases > 0) {
+        inProgress++;
+      }
+    });
+
+    return {
+      total: students.length,
+      active: students.length,
+      completed,
+      inProgress,
+    };
+  }, [gradebookData]);
+
+  const studentsWithStatus = useMemo(() => {
+    if (!gradebookData || !code) return [];
+    
+    const totalCases = gradebookData.cases.length;
+    
+    return gradebookData.students.map((student) => {
+      const cohortStudent = code.students?.find(
+        (s) => s.email.toLowerCase() === student.email.toLowerCase()
+      );
+      
+      const completedCases = student.cases.filter((c) => c.bestScore !== null).length;
       let progressStatus: ProgressStatus = "not_started";
-      if (perf.completedCases > 0 && perf.completedCases >= perf.assignedCases) {
+      if (completedCases >= totalCases && totalCases > 0) {
         progressStatus = "completed";
-      } else if (perf.completedCases > 0) {
+      } else if (completedCases > 0) {
         progressStatus = "in_progress";
       }
-
+      
       return {
         ...student,
-        visibleName: student.name || student.email.split("@")[0],
-        assignedCases: perf.assignedCases,
-        completedCases: perf.completedCases,
+        status: cohortStudent?.status || "invited" as StudentStatus,
         progressStatus,
-        bestScore: perf.bestScore,
-        avgScore: perf.avgScore,
       };
     });
-  }, [code?.students, code?.assignedCaseIds, learnerPerformance]);
+  }, [gradebookData, code]);
 
-  const filteredAndSortedLearners = useMemo(() => {
-    let filtered = learnersWithPerformance;
+  const filteredAndSortedStudents = useMemo(() => {
+    if (!studentsWithStatus.length) return [];
+
+    let filtered = studentsWithStatus;
 
     if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase();
-      filtered = filtered.filter(
-        (s) =>
-          s.email.toLowerCase().includes(query) ||
-          s.visibleName.toLowerCase().includes(query)
-      );
+      filtered = filtered.filter((s) => s.name.toLowerCase().includes(query));
     }
 
-    filtered.sort((a, b) => {
+    filtered = [...filtered].sort((a, b) => {
       let cmp = 0;
-      switch (sortField) {
-        case "name":
-          cmp = a.visibleName.localeCompare(b.visibleName);
-          break;
-        case "email":
-          cmp = a.email.localeCompare(b.email);
-          break;
-        case "status":
-          cmp = a.status.localeCompare(b.status);
-          break;
-        case "score":
-          const scoreA = a.bestScore ?? -1;
-          const scoreB = b.bestScore ?? -1;
-          cmp = scoreA - scoreB;
-          break;
-        case "progress":
-          const progressOrder = { not_started: 0, in_progress: 1, completed: 2 };
-          cmp = progressOrder[a.progressStatus] - progressOrder[b.progressStatus];
-          break;
+
+      if (sortField === "name") {
+        cmp = a.name.localeCompare(b.name);
+      } else if (sortField === "average") {
+        const avgA = a.averageScore ?? -1;
+        const avgB = b.averageScore ?? -1;
+        cmp = avgA - avgB;
+      } else if (sortField === "status") {
+        cmp = a.status.localeCompare(b.status);
+      } else {
+        const caseA = a.cases.find((c) => c.caseId === sortField);
+        const caseB = b.cases.find((c) => c.caseId === sortField);
+        const scoreA = caseA?.bestScore ?? -1;
+        const scoreB = caseB?.bestScore ?? -1;
+        cmp = scoreA - scoreB;
       }
+
       return sortDirection === "asc" ? cmp : -cmp;
     });
 
     return filtered;
-  }, [learnersWithPerformance, searchQuery, sortField, sortDirection]);
-
-  const studentStats = useMemo(() => {
-    const learners = learnersWithPerformance;
-    return {
-      total: learners.length,
-      active: learners.filter((s) => s.status === "active" || s.status === "joined").length,
-      completed: learners.filter((s) => s.progressStatus === "completed").length,
-      inProgress: learners.filter((s) => s.progressStatus === "in_progress").length,
-    };
-  }, [learnersWithPerformance]);
+  }, [studentsWithStatus, searchQuery, sortField, sortDirection]);
 
   const handleSort = (field: SortField) => {
     if (sortField === field) {
@@ -230,22 +312,40 @@ export default function CodeDetailPage() {
     router.push(`/codes/${codeId}/student/${encodeURIComponent(studentEmail)}`);
   };
 
+  const handleScoreClick = (studentEmail: string, caseId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    router.push(`/codes/${codeId}/student/${encodeURIComponent(studentEmail)}/score/${caseId}`);
+  };
+
   const handleExportCSV = () => {
-    if (!filteredAndSortedLearners.length) {
-      addToast({ title: "No learners to export", color: "warning" });
+    if (!gradebookData || filteredAndSortedStudents.length === 0) {
+      addToast({ title: "No data to export", color: "warning" });
       return;
     }
 
-    const headers = ["Name", "Email", "Status", "Progress", "Best Score", "Completed Cases", "Assigned Cases"];
-    const rows = filteredAndSortedLearners.map((s) => [
-      s.visibleName,
-      s.email,
-      s.status,
-      s.progressStatus,
-      s.bestScore !== null ? s.bestScore.toString() : "N/A",
-      s.completedCases.toString(),
-      s.assignedCases.toString(),
-    ]);
+    const headers = [
+      "Student Name",
+      "Enrollment",
+      ...gradebookData.cases.map((c) => c.name),
+      "Average",
+    ];
+
+    const rows = filteredAndSortedStudents.map((student) => {
+      const caseScores = gradebookData.cases.map((caseInfo) => {
+        const caseData = student.cases.find((c) => c.caseId === caseInfo.id);
+        if (caseData?.bestScore !== null && caseData?.bestScore !== undefined) {
+          return `${caseData.bestScore} (${caseData.attemptCount})`;
+        }
+        return caseData?.attemptCount ? `In Progress (${caseData.attemptCount})` : "Not Started";
+      });
+
+      return [
+        student.name,
+        STATUS_CONFIG[student.status].label,
+        ...caseScores,
+        student.averageScore !== null ? student.averageScore.toString() : "—",
+      ];
+    });
 
     const csvContent = [
       headers.join(","),
@@ -256,11 +356,11 @@ export default function CodeDetailPage() {
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = `${code?.name.replace(/\s+/g, "_")}_learners.csv`;
+    link.download = `${gradebookData.cohortName.replace(/\s+/g, "_")}_gradebook.csv`;
     link.click();
     URL.revokeObjectURL(url);
 
-    addToast({ title: "CSV exported", color: "success" });
+    addToast({ title: "Gradebook exported", color: "success" });
   };
 
   const handleBack = () => router.push("/codes");
@@ -328,6 +428,12 @@ export default function CodeDetailPage() {
     document.body.removeChild(textArea);
   };
 
+  const getScoreColor = (score: number | null): "success" | "warning" | "default" => {
+    if (score === null) return "default";
+    const threshold = code?.passingScore ?? 70;
+    return score >= threshold ? "success" : "warning";
+  };
+
   if (loading) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[400px]">
@@ -348,15 +454,15 @@ export default function CodeDetailPage() {
   }
 
   return (
-    <div className="max-w-6xl mx-auto space-y-6">
+    <div className="w-full space-y-6">
       {/* Header */}
-      <div className="flex items-center gap-4">
+      <div className="flex items-center gap-4 px-4">
         <Button isIconOnly variant="light" onPress={handleBack}>
           <ArrowLeft />
         </Button>
         <div className="flex-1">
           <h1 className={pageTitle()}>{code.name}</h1>
-          <p className="text-default-500 text-sm">Manage learners and view performance</p>
+          <p className="text-default-500 text-sm">Gradebook</p>
         </div>
         <Button
           color="primary"
@@ -376,7 +482,7 @@ export default function CodeDetailPage() {
       </div>
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 px-4">
         <Card>
           <CardBody className="flex flex-row items-center gap-3">
             <div className="p-2 rounded-lg bg-primary/10">
@@ -384,7 +490,7 @@ export default function CodeDetailPage() {
             </div>
             <div>
               <p className="text-2xl font-bold">{studentStats.total}</p>
-              <p className="text-xs text-default-500">Total Invited Learners</p>
+              <p className="text-xs text-default-500">Total Students</p>
             </div>
           </CardBody>
         </Card>
@@ -394,8 +500,8 @@ export default function CodeDetailPage() {
               <CheckCircle className="w-5 h-5 text-success" />
             </div>
             <div>
-              <p className="text-2xl font-bold">{studentStats.active}</p>
-              <p className="text-xs text-default-500">Enrolled</p>
+              <p className="text-2xl font-bold">{gradebookData?.cases.length || 0}</p>
+              <p className="text-xs text-default-500">Cases</p>
             </div>
           </CardBody>
         </Card>
@@ -417,16 +523,16 @@ export default function CodeDetailPage() {
             </div>
             <div>
               <p className="text-2xl font-bold">{studentStats.completed}</p>
-              <p className="text-xs text-default-500">Completed</p>
+              <p className="text-xs text-default-500">Completed All</p>
             </div>
           </CardBody>
         </Card>
       </div>
 
       {/* Actions Bar */}
-      <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
+      <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between px-4">
         <Input
-          placeholder="Search by email or name..."
+          placeholder="Search by name..."
           value={searchQuery}
           onValueChange={setSearchQuery}
           startContent={<Search className="w-4 h-4 text-default-400" />}
@@ -436,10 +542,18 @@ export default function CodeDetailPage() {
         />
         <div className="flex gap-2 flex-wrap">
           <Button
+            color="primary"
+            size="sm"
+            startContent={<Plus className="w-4 h-4" />}
+            onPress={openAssignCasesModal}
+          >
+            Assign Cases
+          </Button>
+          <Button
             variant="bordered"
             size="sm"
             startContent={<RefreshCw className="w-4 h-4" />}
-            onPress={loadCode}
+            onPress={() => { loadCode(); loadGradebook(); }}
           >
             Refresh
           </Button>
@@ -448,170 +562,255 @@ export default function CodeDetailPage() {
             size="sm"
             startContent={<Download className="w-4 h-4" />}
             onPress={handleExportCSV}
-            isDisabled={!filteredAndSortedLearners.length}
+            isDisabled={!filteredAndSortedStudents.length}
           >
             Export CSV
           </Button>
         </div>
       </div>
 
-      {/* Learners Table */}
-      <Card>
-        <CardBody className="p-0">
-          {filteredAndSortedLearners.length === 0 ? (
-            <div className="text-center py-12">
-              <Users className="w-12 h-12 mx-auto text-default-300 mb-4" />
-              {searchQuery ? (
-                <>
-                  <p className="text-default-500">No learners match your search</p>
-                  <Button variant="light" size="sm" className="mt-2" onPress={() => setSearchQuery("")}>
-                    Clear search
-                  </Button>
-                </>
-              ) : (
-                <p className="text-default-500">No learners in this cohort yet</p>
-              )}
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead className="bg-default-100">
-                  <tr>
-                    <th
-                      className="text-left p-4 font-medium cursor-pointer hover:bg-default-200"
-                      onClick={() => handleSort("name")}
+      {/* Gradebook Table - Full Width */}
+      <div className="w-full">
+        <Card className="rounded-none sm:rounded-lg sm:mx-4">
+          <CardBody className="p-0">
+            {loadingGradebook ? (
+              <div className="flex flex-col items-center justify-center py-12">
+                <Spinner size="lg" label="Loading gradebook..." />
+              </div>
+            ) : !gradebookData || filteredAndSortedStudents.length === 0 ? (
+              <div className="text-center py-12">
+                <BookOpen className="w-12 h-12 mx-auto text-default-300 mb-4" />
+                {searchQuery ? (
+                  <>
+                    <p className="text-default-500">No students match your search</p>
+                    <Button
+                      variant="light"
+                      size="sm"
+                      className="mt-2"
+                      onPress={() => setSearchQuery("")}
                     >
-                      <div className="flex items-center gap-2">
-                        Name
-                        <ArrowUpDown size={14} className={sortField === "name" ? "text-primary" : "text-default-400"} />
-                      </div>
-                    </th>
-                    <th
-                      className="text-left p-4 font-medium cursor-pointer hover:bg-default-200"
-                      onClick={() => handleSort("email")}
-                    >
-                      <div className="flex items-center gap-2">
-                        Email
-                        <ArrowUpDown size={14} className={sortField === "email" ? "text-primary" : "text-default-400"} />
-                      </div>
-                    </th>
-                    <th
-                      className="text-left p-4 font-medium cursor-pointer hover:bg-default-200"
-                      onClick={() => handleSort("status")}
-                    >
-                      <div className="flex items-center gap-2">
-                        Enrollment
-                        <ArrowUpDown size={14} className={sortField === "status" ? "text-primary" : "text-default-400"} />
-                      </div>
-                    </th>
-                    <th
-                      className="text-left p-4 font-medium cursor-pointer hover:bg-default-200"
-                      onClick={() => handleSort("progress")}
-                    >
-                      <div className="flex items-center gap-2">
-                        Progress
-                        <ArrowUpDown size={14} className={sortField === "progress" ? "text-primary" : "text-default-400"} />
-                      </div>
-                    </th>
-                    <th
-                      className="text-right p-4 font-medium cursor-pointer hover:bg-default-200"
-                      onClick={() => handleSort("score")}
-                    >
-                      <div className="flex items-center justify-end gap-2">
-                        Best Score
-                        <ArrowUpDown size={14} className={sortField === "score" ? "text-primary" : "text-default-400"} />
-                      </div>
-                    </th>
-                    <th className="text-center p-4 font-medium">Cases</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-default-200">
-                  {filteredAndSortedLearners.map((learner) => {
-                    const statusConfig = STATUS_CONFIG[learner.status];
-                    const progressConfig = PROGRESS_CONFIG[learner.progressStatus];
-                    return (
-                      <tr
-                        key={learner.email}
-                        className="hover:bg-default-50 cursor-pointer"
-                        onClick={() => handleStudentClick(learner.email)}
+                      Clear search
+                    </Button>
+                  </>
+                ) : (
+                  <p className="text-default-500">No students in this cohort yet</p>
+                )}
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm min-w-max">
+                  <thead className="bg-default-100 sticky top-0">
+                    <tr>
+                      <th
+                        className="text-left p-3 font-medium cursor-pointer hover:bg-default-200 sticky left-0 bg-default-100 z-10 min-w-[160px]"
+                        onClick={() => handleSort("name")}
                       >
-                        <td className="p-4">
-                          <span className="text-primary hover:underline font-medium">
-                            {learner.visibleName}
+                        <div className="flex items-center gap-2">
+                          Student
+                          <ArrowUpDown
+                            size={14}
+                            className={sortField === "name" ? "text-primary" : "text-default-400"}
+                          />
+                        </div>
+                      </th>
+                      <th
+                        className="text-center p-3 font-medium cursor-pointer hover:bg-default-200 min-w-[90px]"
+                        onClick={() => handleSort("status")}
+                      >
+                        <div className="flex items-center justify-center gap-1">
+                          <span className="text-xs">Enrollment</span>
+                          <ArrowUpDown
+                            size={12}
+                            className={sortField === "status" ? "text-primary" : "text-default-400"}
+                          />
+                        </div>
+                      </th>
+                      {gradebookData.cases.map((caseInfo) => (
+                        <th
+                          key={caseInfo.id}
+                          className="text-center p-3 font-medium cursor-pointer hover:bg-default-200 min-w-[150px]"
+                          onClick={() => handleSort(caseInfo.id)}
+                        >
+                          <div className="flex items-center justify-center gap-1">
+                            <span className="text-xs" title={caseInfo.name}>
+                              {caseInfo.name}
+                            </span>
+                            <ArrowUpDown
+                              size={12}
+                              className={sortField === caseInfo.id ? "text-primary" : "text-default-400"}
+                            />
+                          </div>
+                        </th>
+                      ))}
+                      <th
+                        className="text-center p-3 font-medium cursor-pointer hover:bg-default-200 min-w-[80px] bg-default-50"
+                        onClick={() => handleSort("average")}
+                      >
+                        <div className="flex items-center justify-center gap-1">
+                          <span className="text-xs">Avg</span>
+                          <ArrowUpDown
+                            size={12}
+                            className={sortField === "average" ? "text-primary" : "text-default-400"}
+                          />
+                        </div>
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-default-200">
+                    {filteredAndSortedStudents.map((student) => {
+                      const statusConfig = STATUS_CONFIG[student.status];
+                      return (
+                      <tr
+                        key={student.email}
+                        className="hover:bg-default-50 cursor-pointer"
+                        onClick={() => handleStudentClick(student.email)}
+                      >
+                        <td className="p-3 sticky left-0 bg-white dark:bg-default-50 z-10">
+                          <span className="text-primary hover:underline font-medium text-sm">
+                            {student.name}
                           </span>
                         </td>
-                        <td className="p-4 text-default-600">{learner.email}</td>
-                        <td className="p-4">
+                        <td className="p-3 text-center">
                           <Chip
                             size="sm"
                             color={statusConfig.color}
                             variant="flat"
                             startContent={statusConfig.icon}
+                            className="text-xs"
                           >
                             {statusConfig.label}
                           </Chip>
                         </td>
-                        <td className="p-4">
-                          <Chip size="sm" color={progressConfig.color} variant="flat">
-                            {progressConfig.label}
-                          </Chip>
-                        </td>
-                        <td className="p-4 text-right">
-                          {learner.bestScore !== null ? (
+                        {gradebookData.cases.map((caseInfo) => {
+                          const caseData = student.cases.find((c) => c.caseId === caseInfo.id);
+                          return (
+                            <td
+                              key={caseInfo.id}
+                              className="p-3 text-center"
+                              onClick={(e) => {
+                                if (caseData?.bestScore !== null || (caseData?.attemptCount && caseData.attemptCount > 0)) {
+                                  handleScoreClick(student.email, caseInfo.id, e);
+                                }
+                              }}
+                            >
+                              {caseData?.bestScore !== null && caseData?.bestScore !== undefined ? (
+                                <div className="flex flex-col items-center gap-0.5">
+                                  <Chip
+                                    size="sm"
+                                    color={getScoreColor(caseData.bestScore)}
+                                    variant="flat"
+                                    className="cursor-pointer hover:opacity-80 text-xs"
+                                  >
+                                    {caseData.bestScore}
+                                  </Chip>
+                                  <span className="text-[10px] text-default-400">
+                                    ({caseData.attemptCount})
+                                  </span>
+                                </div>
+                              ) : caseData?.attemptCount && caseData.attemptCount > 0 ? (
+                                <div className="flex flex-col items-center gap-0.5">
+                                  <Clock className="w-4 h-4 text-warning" />
+                                  <span className="text-[10px] text-default-400">
+                                    ({caseData.attemptCount})
+                                  </span>
+                                </div>
+                              ) : (
+                                <div className="flex items-center justify-center" title="Not Started">
+                                  <CircleDashed className="w-4 h-4 text-default-300" />
+                                </div>
+                              )}
+                            </td>
+                          );
+                        })}
+                        <td className="p-3 text-center bg-default-50/50">
+                          {student.averageScore !== null ? (
                             <Chip
                               size="sm"
-                              color={learner.bestScore >= 70 ? "success" : "warning"}
-                              variant="flat"
+                              color={getScoreColor(student.averageScore)}
+                              variant="solid"
+                              className="text-xs"
                             >
-                              {learner.bestScore}
+                              {student.averageScore}
                             </Chip>
                           ) : (
-                            <span className="text-default-400">—</span>
+                            <span className="text-default-400 text-xs">—</span>
                           )}
                         </td>
-                        <td className="p-4 text-center text-default-600">
-                          {learner.completedCases}/{learner.assignedCases}
-                        </td>
                       </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </CardBody>
-      </Card>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </CardBody>
+        </Card>
+      </div>
 
-      {/* Code Info */}
-      <Card>
-        <CardHeader>
-          <h3 className="text-lg font-semibold">Cohort Details</h3>
-        </CardHeader>
-        <CardBody className="space-y-3">
-          <div className="flex justify-between items-center">
-            <span className="text-default-500">Access Mode</span>
-            <Chip
-              size="sm"
-              variant="bordered"
-              color={code.accessMode === "anyone" ? "success" : "warning"}
-            >
-              {code.accessMode === "anyone" ? "Open Access" : "Restricted"}
-            </Chip>
+      {/* Legend */}
+      {gradebookData && gradebookData.students.length > 0 && (
+        <div className="flex items-center gap-4 text-xs text-default-500 flex-wrap px-4">
+          <div className="flex items-center gap-1.5">
+            <Chip size="sm" color="success" variant="flat" className="text-xs">85</Chip>
+            <span>Pass (≥{code.passingScore ?? 70})</span>
           </div>
-          <div className="flex justify-between items-center">
-            <span className="text-default-500">Status</span>
-            <Chip size="sm" variant="flat" color={code.isActive ? "success" : "default"}>
-              {code.isActive ? "Active" : "Inactive"}
-            </Chip>
+          <div className="flex items-center gap-1.5">
+            <Chip size="sm" color="warning" variant="flat" className="text-xs">55</Chip>
+            <span>Below ({code.passingScore ?? 70})</span>
           </div>
-          {code.assignedCaseIds && code.assignedCaseIds.length > 0 && (
+          <div className="flex items-center gap-1.5">
+            <Clock className="w-3.5 h-3.5 text-warning" />
+            <span>In Progress</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <CircleDashed className="w-3.5 h-3.5 text-default-300" />
+            <span>Not Started</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span className="text-default-400">(3)</span>
+            <span>Attempts</span>
+          </div>
+        </div>
+      )}
+
+      {/* Cohort Details */}
+      <div className="px-4">
+        <Card>
+          <CardHeader>
+            <h3 className="text-lg font-semibold">Cohort Details</h3>
+          </CardHeader>
+          <CardBody className="space-y-3">
             <div className="flex justify-between items-center">
-              <span className="text-default-500">Assigned Cases</span>
-              <span>{code.assignedCaseIds.length} case(s)</span>
+              <span className="text-default-500">Passing Score</span>
+              <Chip size="sm" variant="flat" color="primary">
+                {code.passingScore ?? 70}
+              </Chip>
             </div>
-          )}
-        </CardBody>
-      </Card>
+            <div className="flex justify-between items-center">
+              <span className="text-default-500">Access Mode</span>
+              <Chip
+                size="sm"
+                variant="bordered"
+                color={code.accessMode === "anyone" ? "success" : "warning"}
+              >
+                {code.accessMode === "anyone" ? "Open Access" : "Restricted"}
+              </Chip>
+            </div>
+            <div className="flex justify-between items-center">
+              <span className="text-default-500">Status</span>
+              <Chip size="sm" variant="flat" color={code.isActive ? "success" : "default"}>
+                {code.isActive ? "Active" : "Inactive"}
+              </Chip>
+            </div>
+            {code.assignedCaseIds && code.assignedCaseIds.length > 0 && (
+              <div className="flex justify-between items-center">
+                <span className="text-default-500">Assigned Cases</span>
+                <span>{code.assignedCaseIds.length} case(s)</span>
+              </div>
+            )}
+          </CardBody>
+        </Card>
+      </div>
 
       {/* Share/Invite Modal */}
       <Modal 
@@ -707,6 +906,100 @@ export default function CodeDetailPage() {
               }}
             >
               Close
+            </Button>
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
+
+      {/* Assign Cases Modal */}
+      <Modal
+        isOpen={assignCasesModalOpen}
+        onClose={() => setAssignCasesModalOpen(false)}
+        size="2xl"
+        scrollBehavior="inside"
+      >
+        <ModalContent>
+          <ModalHeader className="flex items-center gap-2">
+            <BookOpen className="w-5 h-5 text-primary" />
+            Assign Cases to {code.name}
+          </ModalHeader>
+          <ModalBody>
+            <p className="text-default-500 text-sm mb-4">
+              Select which cases students in this cohort should complete. Assigned cases will appear in the gradebook.
+            </p>
+
+            {/* Search */}
+            <Input
+              placeholder="Search cases..."
+              value={caseSearchQuery}
+              onValueChange={setCaseSearchQuery}
+              startContent={<Search className="w-4 h-4 text-default-400" />}
+              className="mb-4"
+              isClearable
+              onClear={() => setCaseSearchQuery("")}
+            />
+
+            {/* Case List */}
+            {loadingCases ? (
+              <div className="flex justify-center py-8">
+                <Spinner size="lg" label="Loading cases..." />
+              </div>
+            ) : availableCases.length === 0 ? (
+              <div className="text-center py-8">
+                <BookOpen className="w-12 h-12 mx-auto text-default-300 mb-4" />
+                <p className="text-default-500">No cases available</p>
+                <p className="text-default-400 text-sm mt-1">Create cases first to assign them to cohorts</p>
+              </div>
+            ) : (
+              <div className="space-y-1 max-h-[400px] overflow-y-auto border rounded-lg">
+                {getFilteredCases().map((caseItem) => {
+                  const isAssigned = assignedCaseIds.includes(caseItem.id);
+                  return (
+                    <div
+                      key={caseItem.id}
+                      className={`flex items-center gap-3 p-3 cursor-pointer hover:bg-default-100 transition-colors ${
+                        isAssigned ? "bg-primary/10" : ""
+                      }`}
+                      onClick={() => toggleCaseAssignment(caseItem.id)}
+                    >
+                      <Checkbox
+                        isSelected={isAssigned}
+                        onValueChange={() => toggleCaseAssignment(caseItem.id)}
+                        size="sm"
+                      />
+                      <div className="flex-1 min-w-0">
+                        <p className="font-medium text-sm">{caseItem.name}</p>
+                      </div>
+                      {isAssigned && (
+                        <Chip size="sm" color="primary" variant="flat">
+                          Assigned
+                        </Chip>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Summary */}
+            <div className="mt-4 text-sm text-default-500">
+              {availableCases.length} total cases • {assignedCaseIds.length} assigned • {availableCases.length - assignedCaseIds.length} available
+            </div>
+          </ModalBody>
+          <ModalFooter>
+            <Button
+              variant="bordered"
+              onPress={() => setAssignCasesModalOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              color="primary"
+              onPress={handleSaveCaseAssignments}
+              isLoading={savingCases}
+              startContent={!savingCases && <Check className="w-4 h-4" />}
+            >
+              Save Changes
             </Button>
           </ModalFooter>
         </ModalContent>

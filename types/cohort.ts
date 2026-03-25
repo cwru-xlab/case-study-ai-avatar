@@ -26,6 +26,7 @@ export interface Cohort {
   createdAt: string;
   updatedAt: string;
   isActive: boolean;
+  passingScore: number; // Passing score threshold (default 70)
 }
 
 export interface CohortCreateInput {
@@ -38,6 +39,7 @@ export interface CohortCreateInput {
   expirationDate: string | null;
   assignedCaseIds?: string[];
   students: CohortStudent[];
+  passingScore?: number; // Passing score threshold (default 70)
 }
 
 export interface CohortUpdateInput {
@@ -49,6 +51,7 @@ export interface CohortUpdateInput {
   assignedCaseIds?: string[];
   students?: CohortStudent[];
   isActive?: boolean;
+  passingScore?: number; // Passing score threshold
 }
 
 export interface CachedCohort extends Cohort {

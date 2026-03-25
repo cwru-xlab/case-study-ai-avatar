@@ -48,6 +48,7 @@ class CohortStorage {
       createdAt: now,
       updatedAt: now,
       isActive: true,
+      passingScore: input.passingScore ?? 70,
     };
 
     try {

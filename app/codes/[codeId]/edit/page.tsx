@@ -25,6 +25,9 @@ import {
   Link as LinkIcon,
   BookOpen,
   Plus,
+  Trophy,
+  Search,
+  X,
 } from "lucide-react";
 import { Chip } from "@heroui/chip";
 import { addToast } from "@heroui/toast";
@@ -65,6 +68,8 @@ export default function CodeEditPage() {
   const [availableCases, setAvailableCases] = useState<CaseStudy[]>([]);
   const [assignedCaseIds, setAssignedCaseIds] = useState<string[]>([]);
   const [loadingCases, setLoadingCases] = useState(true);
+  const [passingScore, setPassingScore] = useState<number>(70);
+  const [caseSearchQuery, setCaseSearchQuery] = useState("");
 
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [createdAccessCode, setCreatedAccessCode] = useState("");
@@ -95,6 +100,7 @@ export default function CodeEditPage() {
             setStudents(cohort.students || []);
             setEmailsText(cohort.students?.map((s) => s.email).join("\n") || "");
             setAssignedCaseIds(cohort.assignedCaseIds || []);
+            setPassingScore(cohort.passingScore ?? 70);
 
             if (cohort.availableDate) {
               setAvailableNow(false);
@@ -136,8 +142,14 @@ export default function CodeEditPage() {
     );
   };
 
-  const getAssignedCases = () => availableCases.filter((c) => assignedCaseIds.includes(c.id));
-  const getUnassignedCases = () => availableCases.filter((c) => !assignedCaseIds.includes(c.id));
+  const getFilteredCases = () => {
+    let cases = [...availableCases];
+    if (caseSearchQuery.trim()) {
+      const query = caseSearchQuery.toLowerCase();
+      cases = cases.filter((c) => c.name.toLowerCase().includes(query));
+    }
+    return cases;
+  };
 
   const parseEmails = (): CohortStudent[] => {
     const emails = emailsText
@@ -238,6 +250,7 @@ export default function CodeEditPage() {
           expirationDate: neverExpires ? null : expirationDate,
           assignedCaseIds,
           students: parsedStudents,
+          passingScore,
         };
 
         const created = await cohortStorage.add(input);
@@ -259,6 +272,7 @@ export default function CodeEditPage() {
           assignedCaseIds,
           students: parsedStudents,
           isActive,
+          passingScore,
         });
         addToast({ title: "Cohort saved", color: "success" });
         router.push(`/codes/${codeId}`);
@@ -376,6 +390,48 @@ export default function CodeEditPage() {
               onValueChange={setDescription}
               minRows={2}
             />
+          </CardBody>
+        </Card>
+
+        {/* Grading Settings */}
+        <Card>
+          <CardHeader>
+            <div className="flex items-center gap-2">
+              <Trophy className="w-5 h-5" />
+              <h2 className="text-xl font-semibold">Grading Settings</h2>
+            </div>
+          </CardHeader>
+          <CardBody className="space-y-4">
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Passing Score</label>
+              <p className="text-sm text-default-500">
+                Set the minimum score required to pass. Scores below this will be highlighted in yellow.
+              </p>
+              <div className="flex items-center gap-4">
+                <Input
+                  type="number"
+                  min={0}
+                  max={100}
+                  value={passingScore.toString()}
+                  onValueChange={(val) => setPassingScore(Math.min(100, Math.max(0, parseInt(val) || 0)))}
+                  className="w-32"
+                  endContent={<span className="text-default-400">/ 100</span>}
+                />
+                <div className="flex gap-2">
+                  {[50, 60, 70, 80].map((score) => (
+                    <Button
+                      key={score}
+                      size="sm"
+                      variant={passingScore === score ? "solid" : "bordered"}
+                      color={passingScore === score ? "primary" : "default"}
+                      onPress={() => setPassingScore(score)}
+                    >
+                      {score}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+            </div>
           </CardBody>
         </Card>
 
@@ -516,14 +572,15 @@ export default function CodeEditPage() {
           <CardHeader>
             <div className="flex items-center gap-2">
               <BookOpen className="w-5 h-5" />
-              <h2 className="text-xl font-semibold">Assigned Cases</h2>
+              <h2 className="text-xl font-semibold">Assign Cases</h2>
+              {assignedCaseIds.length > 0 && (
+                <Chip size="sm" variant="flat" color="primary">
+                  {assignedCaseIds.length} assigned
+                </Chip>
+              )}
             </div>
           </CardHeader>
           <CardBody className="space-y-4">
-            <p className="text-sm text-default-500">
-              Select which case studies learners in this cohort will have access to.
-            </p>
-
             {loadingCases ? (
               <p className="text-default-400 text-sm">Loading cases...</p>
             ) : availableCases.length === 0 ? (
@@ -533,53 +590,63 @@ export default function CodeEditPage() {
               </div>
             ) : (
               <>
-                {assignedCaseIds.length > 0 && (
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium text-default-700">
-                      Assigned ({assignedCaseIds.length})
-                    </label>
-                    <div className="flex flex-wrap gap-2">
-                      {getAssignedCases().map((caseItem) => (
-                        <Chip
-                          key={caseItem.id}
-                          color="primary"
-                          variant="flat"
-                          onClose={() => toggleCaseAssignment(caseItem.id)}
-                        >
-                          {caseItem.name}
-                        </Chip>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {getUnassignedCases().length > 0 && (
-                  <div className="space-y-2 pt-2 border-t">
-                    <label className="text-sm font-medium text-default-700">Available Cases</label>
-                    <div className="grid gap-2">
-                      {getUnassignedCases().map((caseItem) => (
-                        <div
-                          key={caseItem.id}
-                          className="flex items-center justify-between p-3 rounded-lg border border-default-200 hover:border-primary hover:bg-primary/5 cursor-pointer transition-all"
-                          onClick={() => toggleCaseAssignment(caseItem.id)}
-                        >
-                          <div className="flex-1 min-w-0">
-                            <p className="font-medium text-sm truncate">{caseItem.name}</p>
-                          </div>
-                          <Button size="sm" variant="light" color="primary" isIconOnly>
-                            <Plus className="w-4 h-4" />
-                          </Button>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
                 {assignedCaseIds.length === 0 && (
                   <p className="text-sm text-warning-600 bg-warning-50 p-3 rounded-lg">
                     No cases assigned. Learners won&apos;t see any case studies until you assign at least one.
                   </p>
                 )}
+
+                {/* Search Input */}
+                <Input
+                  placeholder="Search cases..."
+                  value={caseSearchQuery}
+                  onValueChange={setCaseSearchQuery}
+                  startContent={<Search className="w-4 h-4 text-default-400" />}
+                  isClearable
+                  onClear={() => setCaseSearchQuery("")}
+                />
+
+                {/* All Cases List */}
+                <div className="border rounded-lg divide-y max-h-80 overflow-y-auto">
+                  {getFilteredCases().length === 0 ? (
+                    <div className="p-4 text-center text-default-400 text-sm">
+                      No cases match your search
+                    </div>
+                  ) : (
+                    getFilteredCases().map((caseItem) => {
+                      const isAssigned = assignedCaseIds.includes(caseItem.id);
+                      return (
+                        <div
+                          key={caseItem.id}
+                          className={`flex items-center justify-between p-3 cursor-pointer transition-colors ${
+                            isAssigned 
+                              ? "bg-primary/10 hover:bg-primary/15" 
+                              : "hover:bg-default-50"
+                          }`}
+                          onClick={() => toggleCaseAssignment(caseItem.id)}
+                        >
+                          <div className="flex items-center gap-3 flex-1 min-w-0">
+                            <Checkbox
+                              isSelected={isAssigned}
+                              onValueChange={() => toggleCaseAssignment(caseItem.id)}
+                              color="primary"
+                            />
+                            <p className="font-medium text-sm truncate">{caseItem.name}</p>
+                          </div>
+                          {isAssigned && (
+                            <Chip size="sm" color="primary" variant="flat">
+                              Assigned
+                            </Chip>
+                          )}
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+
+                <p className="text-xs text-default-400">
+                  {availableCases.length} total cases • {assignedCaseIds.length} assigned • {availableCases.length - assignedCaseIds.length} available
+                </p>
               </>
             )}
           </CardBody>
