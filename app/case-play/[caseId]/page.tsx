@@ -78,6 +78,8 @@ export default function CasePlayPage() {
   const [finishing, setFinishing] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const autoSaveRef = useRef<NodeJS.Timeout | null>(null);
+  const interactionLogRef = useRef<InteractionLog | null>(null);
+  const chatMessagesRef = useRef<Record<string, RoleMessage[]>>({});
 
   // Interaction mode state (text vs avatar)
   const [interactionMode, setInteractionMode] = useState<InteractionMode>("text");
@@ -142,12 +144,23 @@ export default function CasePlayPage() {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [chatMessages, selectedRole]);
 
+  // Keep refs in sync so auto-save always has the latest data
+  useEffect(() => {
+    interactionLogRef.current = interactionLog;
+  }, [interactionLog]);
+
+  useEffect(() => {
+    chatMessagesRef.current = chatMessages;
+  }, [chatMessages]);
+
   // Auto-save every 15 seconds for assessed mode
   useEffect(() => {
     if (pageState === "playing" && mode === "assessed" && interactionLog) {
       autoSaveRef.current = setInterval(() => {
-        saveInteraction(interactionLog);
-      }, 15000);
+        if (interactionLogRef.current) {
+          saveInteraction(interactionLogRef.current);
+        }
+      }, 5000);
 
       return () => {
         if (autoSaveRef.current) clearInterval(autoSaveRef.current);
@@ -188,6 +201,13 @@ export default function CasePlayPage() {
   const saveInteraction = async (log: InteractionLog) => {
     if (log.mode !== "assessed") return;
     try {
+      // Sync latest chatMessages into the log before saving
+      const currentMessages = chatMessagesRef.current;
+      for (const [roleId, messages] of Object.entries(currentMessages)) {
+        if (log.roleInteractions[roleId]) {
+          log.roleInteractions[roleId].messages = messages;
+        }
+      }
       await fetch("/api/interaction/save", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -240,11 +260,11 @@ export default function CasePlayPage() {
       const data = await res.json();
       const log: InteractionLog = data.log;
 
-      // Restore chat messages from the interaction log
+      // Restore chat messages from the interaction log (deep copy to avoid shared references)
       const restoredMessages: Record<string, RoleMessage[]> = {};
       for (const [roleId, roleInteraction] of Object.entries(log.roleInteractions) as [string, RoleInteraction][]) {
         if (roleInteraction.messages.length > 0) {
-          restoredMessages[roleId] = roleInteraction.messages;
+          restoredMessages[roleId] = [...roleInteraction.messages];
         }
       }
 
@@ -253,11 +273,17 @@ export default function CasePlayPage() {
         type: "start_session",
         timestamp: Date.now(),
       });
+      log.updatedAt = new Date().toISOString();
 
-      setMode(log.mode);
+      setMode(log.mode as "explore" | "assessed");
       setInteractionLog(log);
       setChatMessages(restoredMessages);
       setPageState("playing");
+
+      // Immediately save so the resume event is persisted
+      if (log.mode === "assessed") {
+        saveInteraction(log);
+      }
 
       addToast({ title: "Session resumed", color: "success" });
     } catch (err) {
@@ -564,6 +590,13 @@ export default function CasePlayPage() {
       // Stop avatar session if active
       if (interactionMode === "avatar") {
         avatarRef.current?.stopSession();
+      }
+
+      // Sync chatMessages back into the log to ensure nothing is lost
+      for (const [roleId, messages] of Object.entries(chatMessages)) {
+        if (interactionLog.roleInteractions[roleId]) {
+          interactionLog.roleInteractions[roleId].messages = messages;
+        }
       }
 
       const res = await fetch("/api/interaction/finish", {
