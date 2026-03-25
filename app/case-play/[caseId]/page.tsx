@@ -22,6 +22,13 @@ import {
   Mic,
   MicOff,
 } from "lucide-react";
+import {
+  Modal,
+  ModalContent,
+  ModalHeader,
+  ModalBody,
+  ModalFooter,
+} from "@heroui/modal";
 import { addToast } from "@heroui/toast";
 import { title } from "@/components/primitives";
 import { useAuth } from "@/lib/auth-context";
@@ -59,6 +66,9 @@ export default function CasePlayPage() {
   const avatarRef = useRef<InteractiveAvatarRef>(null);
   const [avatarConfig, setAvatarConfig] = useState<StartAvatarRequest | null>(null);
   const [avatarConfigLoading, setAvatarConfigLoading] = useState(false);
+
+  // Finish confirmation modal
+  const [showFinishModal, setShowFinishModal] = useState(false);
 
   // Push-to-talk state for avatar mode
   const [isRecording, setIsRecording] = useState(false);
@@ -602,7 +612,7 @@ export default function CasePlayPage() {
   return (
     <div className="flex h-[calc(100vh-80px)] gap-4">
       {/* Left sidebar - Roles */}
-      <div className="w-64 flex-shrink-0 flex flex-col gap-3">
+      <div className="w-64 shrink-0 flex flex-col gap-3">
         <div className="flex items-center justify-between">
           <h3 className="font-semibold text-sm">Roles</h3>
           <Chip size="sm" variant="flat" color={mode === "assessed" ? "primary" : "default"}>
@@ -640,7 +650,7 @@ export default function CasePlayPage() {
           color="danger"
           variant="flat"
           startContent={<CheckCircle className="w-4 h-4" />}
-          onPress={handleFinish}
+          onPress={() => setShowFinishModal(true)}
           isLoading={finishing}
           className="w-full"
         >
@@ -867,6 +877,39 @@ export default function CasePlayPage() {
           </>
         )}
       </div>
+
+      {/* Finish confirmation modal */}
+      <Modal isOpen={showFinishModal} onClose={() => setShowFinishModal(false)} size="sm">
+        <ModalContent>
+          <ModalHeader>End This Session?</ModalHeader>
+          <ModalBody>
+            <p className="text-default-600">
+              Are you sure you&apos;re finished with the entire case? Once you submit,
+              you won&apos;t be able to continue this conversation or make any changes.
+              {mode === "assessed" && (
+                <span className="block mt-2 font-medium text-warning-600">
+                  This is an assessed attempt — your responses will be evaluated.
+                </span>
+              )}
+            </p>
+          </ModalBody>
+          <ModalFooter>
+            <Button variant="light" onPress={() => setShowFinishModal(false)}>
+              Keep Going
+            </Button>
+            <Button
+              color="danger"
+              onPress={() => {
+                setShowFinishModal(false);
+                handleFinish();
+              }}
+              isLoading={finishing}
+            >
+              Yes, I&apos;m Finished
+            </Button>
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
     </div>
   );
 }
