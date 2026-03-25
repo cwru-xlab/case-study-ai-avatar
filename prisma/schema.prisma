@@ -7,25 +7,105 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-model User {
-  id            String   @id @default(uuid())
-  email         String   @unique
-  name          String?
-  role          String   @default("student") // "admin" | "professor" | "student"
-  studentNumber String?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+// ============================================================================
+// ENUMS - Type-safe enumeration values
+// ============================================================================
 
-  // Student relationships - cohorts they joined
-  cohortMemberships CohortMember[]
-  
-  // Student relationships - learning records
-  assignments CaseAssignment[]
-  attempts    Attempt[]
-
-  // Professor relationships - cohorts they created
-  createdCohorts Cohort[] @relation("CohortCreator")
+enum Role {
+  ADMIN
+  PROFESSOR
+  STUDENT
+  KIOSK
 }
+
+enum AuthProvider {
+  EMAIL
+  CWRU_SSO
+}
+
+enum CohortMemberStatus {
+  INVITED
+  JOINED
+  ACTIVE
+  COMPLETED
+}
+
+enum AuditAction {
+  LOGIN
+  LOGOUT
+  CREATE
+  UPDATE
+  DELETE
+  ATTEMPT_START
+  ATTEMPT_SUBMIT
+}
+
+// ============================================================================
+// USER & AUTHENTICATION
+// ============================================================================
+
+model User {
+  id            String       @id @default(uuid())
+  email         String       @unique
+  passwordHash  String?      // null for SSO users
+  name          String?
+  role          Role         @default(STUDENT)
+  studentNumber String?
+  authProvider  AuthProvider @default(EMAIL)
+  
+  // Account status
+  isActive      Boolean      @default(true)
+  emailVerified Boolean      @default(false)
+  
+  // Timestamps
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+  lastLoginAt   DateTime?
+
+  // Relationships
+  sessions          Session[]
+  cohortMemberships CohortMember[]
+  assignments       CaseAssignment[]
+  attempts          Attempt[]
+  createdCohorts    Cohort[]         @relation("CohortCreator")
+  createdCases      Case[]           @relation("CaseCreator")
+  auditLogs         AuditLog[]
+
+  @@index([email])
+  @@index([role])
+}
+
+model Session {
+  id           String   @id @default(uuid())
+  userId       String
+  token        String   @unique
+  userAgent    String?
+  ipAddress    String?
+  expiresAt    DateTime
+  createdAt    DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([token])
+  @@index([expiresAt])
+}
+
+model PasswordResetToken {
+  id        String   @id @default(uuid())
+  email     String
+  token     String   @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime @default(now())
+
+  @@index([email])
+  @@index([token])
+}
+
+// ============================================================================
+// COHORT (Course Section)
+// ============================================================================
 
 model Cohort {
   id          String   @id @default(uuid())
@@ -41,27 +121,36 @@ model Cohort {
 
   // Creator (professor)
   creatorId String?
-  creator   User?   @relation("CohortCreator", fields: [creatorId], references: [id])
+  creator   User?   @relation("CohortCreator", fields: [creatorId], references: [id], onDelete: SetNull)
 
-  // Members (students)
-  members CohortMember[]
-
-  // Assigned cases
+  // Relationships
+  members     CohortMember[]
   assignments CaseAssignment[]
+
+  @@index([code])
+  @@index([creatorId])
+  @@index([isActive])
 }
 
 model CohortMember {
-  id        String   @id @default(uuid())
-  userId    String
-  cohortId  String
-  status    String   @default("joined") // "invited" | "joined" | "active" | "completed"
-  joinedAt  DateTime @default(now())
+  id       String             @id @default(uuid())
+  userId   String
+  cohortId String
+  status   CohortMemberStatus @default(JOINED)
+  joinedAt DateTime           @default(now())
 
-  user   User   @relation(fields: [userId], references: [id])
-  cohort Cohort @relation(fields: [cohortId], references: [id])
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  cohort Cohort @relation(fields: [cohortId], references: [id], onDelete: Cascade)
 
   @@unique([userId, cohortId])
+  @@index([userId])
+  @@index([cohortId])
+  @@index([status])
 }
+
+// ============================================================================
+// CASE (Practice Scenario)
+// ============================================================================
 
 model Case {
   id          String   @id @default(uuid())
@@ -69,11 +158,32 @@ model Case {
   title       String
   description String?
   isPublished Boolean  @default(false)
+  
+  // Metadata
+  difficulty     String?  // "beginner" | "intermediate" | "advanced"
+  estimatedMins  Int?     // estimated time in minutes
+  category       String?  // e.g., "negotiation", "conflict", "leadership"
+  
+  // Timestamps
   createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
+  // Creator
+  createdById String?
+  createdBy   User?   @relation("CaseCreator", fields: [createdById], references: [id], onDelete: SetNull)
+
+  // Relationships
   assignments CaseAssignment[]
   attempts    Attempt[]
+
+  @@index([slug])
+  @@index([isPublished])
+  @@index([createdById])
 }
+
+// ============================================================================
+// CASE ASSIGNMENT
+// ============================================================================
 
 model CaseAssignment {
   id         String   @id @default(uuid())
@@ -81,29 +191,75 @@ model CaseAssignment {
   caseId     String
   cohortId   String?
   assignedAt DateTime @default(now())
+  
+  // Optional: due date and max attempts
+  dueAt       DateTime?
+  maxAttempts Int?
 
-  user   User    @relation(fields: [userId], references: [id])
-  case   Case    @relation(fields: [caseId], references: [id])
-  cohort Cohort? @relation(fields: [cohortId], references: [id])
+  user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  case   Case    @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  cohort Cohort? @relation(fields: [cohortId], references: [id], onDelete: SetNull)
 
   @@unique([userId, caseId])
+  @@index([userId])
+  @@index([caseId])
+  @@index([cohortId])
 }
+
+// ============================================================================
+// ATTEMPT (Learning Record)
+// ============================================================================
 
 model Attempt {
   id                  String    @id @default(uuid())
   userId              String
   caseId              String
   attemptNumber       Int
+  
+  // Performance metrics
   score               Int?
   totalMessages       Int?
   totalTimeSeconds    Int?
+  
+  // Timestamps
+  startedAt           DateTime  @default(now())
   submittedAt         DateTime?
   createdAt           DateTime  @default(now())
+  
+  // Evaluation
   evalResult          String?   @db.Text
+  
+  // Storage reference
   interactionLogS3Key String?
 
-  user User @relation(fields: [userId], references: [id])
-  case Case @relation(fields: [caseId], references: [id])
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  case Case @relation(fields: [caseId], references: [id], onDelete: Cascade)
 
   @@unique([userId, caseId, attemptNumber])
+  @@index([userId])
+  @@index([caseId])
+  @@index([submittedAt])
+}
+
+// ============================================================================
+// AUDIT LOG
+// ============================================================================
+
+model AuditLog {
+  id         String      @id @default(uuid())
+  userId     String?
+  action     AuditAction
+  entityType String?     // "User", "Cohort", "Case", "Attempt", etc.
+  entityId   String?
+  metadata   String?     @db.Text // JSON string for additional context
+  ipAddress  String?
+  userAgent  String?
+  createdAt  DateTime    @default(now())
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([action])
+  @@index([entityType, entityId])
+  @@index([createdAt])
 }

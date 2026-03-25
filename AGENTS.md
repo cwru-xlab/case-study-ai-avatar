@@ -4,14 +4,60 @@
 
 ### Overview
 
-This is a Next.js 16 (App Router, Turbopack) monolith — the CWRU Weatherhead AI Avatar Kiosk. There are no Docker containers, databases, or microservices. All persistence is file-based via AWS S3 (JSON files). See `README.md` for standard commands (`npm install`, `npm run dev`, `npm run build`).
+This is a Next.js 16 (App Router, Turbopack) monolith — the CWRU Weatherhead AI Avatar Kiosk. 
+
+**Data Storage Architecture:**
+- **PostgreSQL** (via Prisma ORM) - Structured data: users, cohorts, cases, attempts, learning records
+- **AWS S3** - Large files: interaction logs (JSON), images, documents
+
+See `README.md` for standard commands (`npm install`, `npm run dev`, `npm run build`).
+
+### Database Schema
+
+The database uses Prisma with PostgreSQL. Key models:
+
+| Model | Purpose |
+|-------|---------|
+| `User` | All users (admin, professor, student) with passwordHash, role (enum), auth provider |
+| `Session` | Login session tracking |
+| `Cohort` | Course sections created by professors |
+| `CohortMember` | Student-cohort membership (many-to-many) |
+| `Case` | AI conversation practice scenarios |
+| `CaseAssignment` | Which cases are assigned to which students |
+| `Attempt` | Learning records (scores, time, messages, evaluation) |
+| `AuditLog` | Operation audit trail |
+
+Role enum: `ADMIN`, `PROFESSOR`, `STUDENT`, `KIOSK`
+
+Schema file: `prisma/schema.prisma`
+
+### Database Commands (Prisma)
+
+| Command | Purpose |
+|---------|---------|
+| `npx prisma db push` | Sync schema to database |
+| `npx prisma db seed` | Fill test data |
+| `npx prisma generate` | Regenerate Prisma Client after schema changes |
+| `npx prisma studio` | Open database GUI in browser |
+| `npx prisma db push --force-reset` | Reset database (⚠️ deletes all data) |
 
 ### Dev server
 
 - `npm run dev` starts the Next.js dev server on port 3000 with Turbopack.
-- The only env var required for the server to boot and auth to work is `JWT_SECRET` (set in `.env.local`).
-- Dev credentials: `admin@example.com` / `admin123` (admin), `user@example.com` / `user123` (regular user).
-- External service API keys (OpenAI, HeyGen, AWS S3, Pinecone) are required only for their respective features; the app starts and login works without them.
+- Required env vars: `JWT_SECRET`, `DATABASE_URL` (set in `.env.local`).
+- External service API keys (OpenAI, HeyGen, AWS S3, Pinecone) are required only for their respective features.
+
+### Dev credentials
+
+| Role | Email | Password |
+|------|-------|----------|
+| Admin | admin@example.com | admin123 |
+| Professor | professor.smith@case.edu | prof123 |
+| Professor | professor.chen@case.edu | prof123 |
+| Student | student@case.edu | student123 |
+| Student | alice.johnson@case.edu | student123 |
+
+All test users are created by `prisma/seed.ts`.
 
 ### Known issues
 
