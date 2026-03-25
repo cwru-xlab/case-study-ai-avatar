@@ -127,23 +127,39 @@ interface ModuleCardProps {
   title: string;
   icon: React.ReactNode;
   children: React.ReactNode;
+  onClick?: () => void;
+  clickable?: boolean;
 }
 
-function ModuleCard({ title, icon, children }: ModuleCardProps) {
+function ModuleCard({ title, icon, children, onClick, clickable }: ModuleCardProps) {
   return (
-    <Card className="h-full">
+    <Card 
+      className={`h-full transition-all duration-200 ${
+        clickable 
+          ? "cursor-pointer hover:shadow-xl hover:-translate-y-1 hover:scale-[1.02] active:scale-[0.98]" 
+          : ""
+      }`}
+      isPressable={clickable}
+      onPress={onClick}
+    >
       <CardHeader className="flex gap-3 pb-2">
-        <div className="p-2 rounded-lg bg-primary/10 text-primary">{icon}</div>
-        <div className="flex flex-col">
+        <div className={`p-2 rounded-lg bg-primary/10 text-primary transition-transform duration-200 ${clickable ? "group-hover:scale-110" : ""}`}>
+          {icon}
+        </div>
+        <div className="flex flex-col flex-1">
           <p className="text-md font-semibold">{title}</p>
         </div>
+        {clickable && (
+          <ChevronRight className="w-5 h-5 text-default-300 transition-transform duration-200 group-hover:translate-x-1" />
+        )}
       </CardHeader>
       <CardBody className="pt-0">{children}</CardBody>
     </Card>
   );
 }
 
-function CaseDetailView({ data, studentEmail }: { data: CaseDetailData; studentEmail: string }) {
+function CaseDetailView({ data, studentEmail, codeId }: { data: CaseDetailData; studentEmail: string; codeId: string }) {
+  const router = useRouter();
   const [selectedAttemptLog, setSelectedAttemptLog] = useState<any>(null);
   const [loadingLog, setLoadingLog] = useState(false);
 
@@ -165,10 +181,31 @@ function CaseDetailView({ data, studentEmail }: { data: CaseDetailData; studentE
     }
   };
 
+  const handleConversationsClick = () => {
+    router.push(`/codes/${codeId}/student/${encodeURIComponent(studentEmail)}/conversations/${data.caseId}`);
+  };
+
+  const handleTimeUsageClick = () => {
+    router.push(`/codes/${codeId}/student/${encodeURIComponent(studentEmail)}/time-usage/${data.caseId}`);
+  };
+
+  const handleScoreClick = () => {
+    router.push(`/codes/${codeId}/student/${encodeURIComponent(studentEmail)}/score/${data.caseId}`);
+  };
+
+  const handleLearningCurveClick = () => {
+    router.push(`/codes/${codeId}/student/${encodeURIComponent(studentEmail)}/learning-curve/${data.caseId}`);
+  };
+
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
       {/* Time Usage Module */}
-      <ModuleCard title="Time Usage" icon={<Clock size={24} />}>
+      <ModuleCard 
+        title="Time Usage" 
+        icon={<Clock size={24} />}
+        clickable={true}
+        onClick={handleTimeUsageClick}
+      >
         <div className="space-y-1">
           <MetricRow
             label="Total Time"
@@ -187,7 +224,12 @@ function CaseDetailView({ data, studentEmail }: { data: CaseDetailData; studentE
       </ModuleCard>
 
       {/* Conversations Module */}
-      <ModuleCard title="Conversations" icon={<MessageSquare size={24} />}>
+      <ModuleCard 
+        title="Conversations" 
+        icon={<MessageSquare size={24} />}
+        clickable={true}
+        onClick={handleConversationsClick}
+      >
         <div className="space-y-1">
           <MetricRow
             label="Total Messages"
@@ -206,7 +248,12 @@ function CaseDetailView({ data, studentEmail }: { data: CaseDetailData; studentE
       </ModuleCard>
 
       {/* Score Module */}
-      <ModuleCard title="Score" icon={<Trophy size={24} />}>
+      <ModuleCard 
+        title="Score" 
+        icon={<Trophy size={24} />}
+        clickable={true}
+        onClick={handleScoreClick}
+      >
         <div className="space-y-1">
           <MetricRow
             label="Current Score"
@@ -239,7 +286,12 @@ function CaseDetailView({ data, studentEmail }: { data: CaseDetailData; studentE
       </ModuleCard>
 
       {/* Learning Curve Module */}
-      <ModuleCard title="Learning Curve" icon={<TrendingUp size={24} />}>
+      <ModuleCard 
+        title="Learning Curve" 
+        icon={<TrendingUp size={24} />}
+        clickable={true}
+        onClick={handleLearningCurveClick}
+      >
         <div className="space-y-2">
           <MiniSparkline data={data.learningCurve.attempts.map((a) => a.score)} />
           <div className="flex justify-between items-center">
@@ -671,7 +723,7 @@ export default function StudentDetailPage() {
             <Briefcase size={20} className="text-primary" />
             <span>{selectedCase.caseName}</span>
           </div>
-          <CaseDetailView data={selectedCase} studentEmail={studentData.email} />
+          <CaseDetailView data={selectedCase} studentEmail={studentData.email} codeId={codeId} />
         </>
       ) : (
         <Card>

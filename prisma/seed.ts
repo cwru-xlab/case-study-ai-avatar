@@ -1,18 +1,47 @@
-import { PrismaClient } from "@prisma/client";
+import { PrismaClient, Role, AuthProvider, CohortMemberStatus } from "@prisma/client";
+import crypto from "crypto";
 
 const prisma = new PrismaClient();
+
+/**
+ * Hash a password using SHA-512
+ */
+function hashPassword(password: string): string {
+  return crypto.createHash("sha512").update(password).digest("hex");
+}
 
 async function main() {
   console.log("🌱 Starting database seed...");
 
-  // Create Users (Students and Professors)
+  // ============================================================================
+  // CREATE USERS
+  // ============================================================================
+
+  // Admin user (for development)
+  const admin = await prisma.user.upsert({
+    where: { email: "admin@example.com" },
+    update: {},
+    create: {
+      email: "admin@example.com",
+      passwordHash: hashPassword("admin123"),
+      name: "Admin User",
+      role: Role.ADMIN,
+      authProvider: AuthProvider.EMAIL,
+      emailVerified: true,
+    },
+  });
+
+  // Professors
   const professor1 = await prisma.user.upsert({
     where: { email: "professor.smith@case.edu" },
     update: {},
     create: {
       email: "professor.smith@case.edu",
+      passwordHash: hashPassword("prof123"),
       name: "Dr. John Smith",
-      role: "professor",
+      role: Role.PROFESSOR,
+      authProvider: AuthProvider.EMAIL,
+      emailVerified: true,
     },
   });
 
@@ -21,19 +50,26 @@ async function main() {
     update: {},
     create: {
       email: "professor.chen@case.edu",
+      passwordHash: hashPassword("prof123"),
       name: "Dr. Wei Chen",
-      role: "professor",
+      role: Role.PROFESSOR,
+      authProvider: AuthProvider.EMAIL,
+      emailVerified: true,
     },
   });
 
+  // Students
   const student1 = await prisma.user.upsert({
     where: { email: "alice.johnson@case.edu" },
     update: {},
     create: {
       email: "alice.johnson@case.edu",
+      passwordHash: hashPassword("student123"),
       name: "Alice Johnson",
-      role: "student",
+      role: Role.STUDENT,
       studentNumber: "STU001",
+      authProvider: AuthProvider.EMAIL,
+      emailVerified: true,
     },
   });
 
@@ -42,9 +78,12 @@ async function main() {
     update: {},
     create: {
       email: "bob.williams@case.edu",
+      passwordHash: hashPassword("student123"),
       name: "Bob Williams",
-      role: "student",
+      role: Role.STUDENT,
       studentNumber: "STU002",
+      authProvider: AuthProvider.EMAIL,
+      emailVerified: true,
     },
   });
 
@@ -53,9 +92,12 @@ async function main() {
     update: {},
     create: {
       email: "carol.davis@case.edu",
+      passwordHash: hashPassword("student123"),
       name: "Carol Davis",
-      role: "student",
+      role: Role.STUDENT,
       studentNumber: "STU003",
+      authProvider: AuthProvider.EMAIL,
+      emailVerified: true,
     },
   });
 
@@ -64,9 +106,12 @@ async function main() {
     update: {},
     create: {
       email: "david.lee@case.edu",
+      passwordHash: hashPassword("student123"),
       name: "David Lee",
-      role: "student",
+      role: Role.STUDENT,
       studentNumber: "STU004",
+      authProvider: AuthProvider.EMAIL,
+      emailVerified: true,
     },
   });
 
@@ -75,15 +120,36 @@ async function main() {
     update: {},
     create: {
       email: "emma.wilson@case.edu",
+      passwordHash: hashPassword("student123"),
       name: "Emma Wilson",
-      role: "student",
+      role: Role.STUDENT,
       studentNumber: "STU005",
+      authProvider: AuthProvider.EMAIL,
+      emailVerified: true,
+    },
+  });
+
+  // Test student (for development)
+  const testStudent = await prisma.user.upsert({
+    where: { email: "student@case.edu" },
+    update: {},
+    create: {
+      email: "student@case.edu",
+      passwordHash: hashPassword("student123"),
+      name: "Jane Smith",
+      role: Role.STUDENT,
+      studentNumber: "jxs456",
+      authProvider: AuthProvider.EMAIL,
+      emailVerified: true,
     },
   });
 
   console.log("✅ Created users");
 
-  // Create Cohorts
+  // ============================================================================
+  // CREATE COHORTS
+  // ============================================================================
+
   const cohort1 = await prisma.cohort.upsert({
     where: { code: "MGMT301-F26" },
     update: {},
@@ -116,46 +182,52 @@ async function main() {
 
   console.log("✅ Created cohorts");
 
-  // Add students to cohorts
+  // ============================================================================
+  // ADD STUDENTS TO COHORTS
+  // ============================================================================
+
   await prisma.cohortMember.upsert({
     where: { userId_cohortId: { userId: student1.id, cohortId: cohort1.id } },
     update: {},
-    create: { userId: student1.id, cohortId: cohort1.id, status: "joined" },
+    create: { userId: student1.id, cohortId: cohort1.id, status: CohortMemberStatus.JOINED },
   });
 
   await prisma.cohortMember.upsert({
     where: { userId_cohortId: { userId: student2.id, cohortId: cohort1.id } },
     update: {},
-    create: { userId: student2.id, cohortId: cohort1.id, status: "joined" },
+    create: { userId: student2.id, cohortId: cohort1.id, status: CohortMemberStatus.JOINED },
   });
 
   await prisma.cohortMember.upsert({
     where: { userId_cohortId: { userId: student3.id, cohortId: cohort1.id } },
     update: {},
-    create: { userId: student3.id, cohortId: cohort1.id, status: "joined" },
+    create: { userId: student3.id, cohortId: cohort1.id, status: CohortMemberStatus.JOINED },
   });
 
   await prisma.cohortMember.upsert({
     where: { userId_cohortId: { userId: student1.id, cohortId: cohort2.id } },
     update: {},
-    create: { userId: student1.id, cohortId: cohort2.id, status: "joined" },
+    create: { userId: student1.id, cohortId: cohort2.id, status: CohortMemberStatus.JOINED },
   });
 
   await prisma.cohortMember.upsert({
     where: { userId_cohortId: { userId: student4.id, cohortId: cohort2.id } },
     update: {},
-    create: { userId: student4.id, cohortId: cohort2.id, status: "joined" },
+    create: { userId: student4.id, cohortId: cohort2.id, status: CohortMemberStatus.JOINED },
   });
 
   await prisma.cohortMember.upsert({
     where: { userId_cohortId: { userId: student5.id, cohortId: cohort2.id } },
     update: {},
-    create: { userId: student5.id, cohortId: cohort2.id, status: "joined" },
+    create: { userId: student5.id, cohortId: cohort2.id, status: CohortMemberStatus.JOINED },
   });
 
   console.log("✅ Added students to cohorts");
 
-  // Create Cases
+  // ============================================================================
+  // CREATE CASES
+  // ============================================================================
+
   const case1 = await prisma.case.upsert({
     where: { slug: "salary-negotiation" },
     update: {},
@@ -164,6 +236,10 @@ async function main() {
       title: "Salary Negotiation Scenario",
       description: "Practice negotiating a salary increase with your manager",
       isPublished: true,
+      difficulty: "intermediate",
+      estimatedMins: 20,
+      category: "negotiation",
+      createdById: professor1.id,
     },
   });
 
@@ -175,6 +251,10 @@ async function main() {
       title: "Customer Complaint Resolution",
       description: "Handle a difficult customer complaint professionally",
       isPublished: true,
+      difficulty: "beginner",
+      estimatedMins: 15,
+      category: "conflict",
+      createdById: professor1.id,
     },
   });
 
@@ -186,12 +266,19 @@ async function main() {
       title: "Team Conflict Management",
       description: "Resolve a conflict between two team members",
       isPublished: true,
+      difficulty: "advanced",
+      estimatedMins: 30,
+      category: "leadership",
+      createdById: professor2.id,
     },
   });
 
   console.log("✅ Created cases");
 
-  // Assign cases to cohorts and students
+  // ============================================================================
+  // ASSIGN CASES TO STUDENTS
+  // ============================================================================
+
   // Cohort 1 students get case1 and case2
   for (const student of [student1, student2, student3]) {
     await prisma.caseAssignment.upsert({
@@ -222,7 +309,10 @@ async function main() {
 
   console.log("✅ Assigned cases to students");
 
-  // Create some attempts (learning records)
+  // ============================================================================
+  // CREATE ATTEMPTS (LEARNING RECORDS)
+  // ============================================================================
+
   // Alice's attempts on Salary Negotiation
   await prisma.attempt.upsert({
     where: { userId_caseId_attemptNumber: { userId: student1.id, caseId: case1.id, attemptNumber: 1 } },
@@ -234,6 +324,7 @@ async function main() {
       score: 72,
       totalMessages: 15,
       totalTimeSeconds: 1200,
+      startedAt: new Date("2026-03-15T10:00:00Z"),
       submittedAt: new Date("2026-03-15T10:30:00Z"),
       evalResult: "Good attempt. Student showed understanding of basic negotiation principles but could improve on assertiveness.",
     },
@@ -249,6 +340,7 @@ async function main() {
       score: 85,
       totalMessages: 18,
       totalTimeSeconds: 1500,
+      startedAt: new Date("2026-03-18T14:00:00Z"),
       submittedAt: new Date("2026-03-18T14:20:00Z"),
       evalResult: "Excellent improvement! Student demonstrated strong negotiation skills and maintained professional composure.",
     },
@@ -265,6 +357,7 @@ async function main() {
       score: 68,
       totalMessages: 12,
       totalTimeSeconds: 900,
+      startedAt: new Date("2026-03-16T09:00:00Z"),
       submittedAt: new Date("2026-03-16T09:15:00Z"),
       evalResult: "Needs improvement. Student was too passive during the negotiation.",
     },
@@ -281,6 +374,7 @@ async function main() {
       score: 90,
       totalMessages: 20,
       totalTimeSeconds: 1800,
+      startedAt: new Date("2026-03-17T11:15:00Z"),
       submittedAt: new Date("2026-03-17T11:45:00Z"),
       evalResult: "Outstanding performance! Student handled the difficult customer with empathy and professionalism.",
     },
@@ -297,6 +391,7 @@ async function main() {
       score: 78,
       totalMessages: 16,
       totalTimeSeconds: 1350,
+      startedAt: new Date("2026-03-19T14:30:00Z"),
       submittedAt: new Date("2026-03-19T15:00:00Z"),
       evalResult: "Good mediation skills. Could improve on finding win-win solutions.",
     },
@@ -313,6 +408,7 @@ async function main() {
       score: 82,
       totalMessages: 14,
       totalTimeSeconds: 1100,
+      startedAt: new Date("2026-03-20T09:40:00Z"),
       submittedAt: new Date("2026-03-20T10:00:00Z"),
       evalResult: "Very good negotiation approach. Student was well-prepared and articulate.",
     },
@@ -328,6 +424,7 @@ async function main() {
       score: 88,
       totalMessages: 22,
       totalTimeSeconds: 1650,
+      startedAt: new Date("2026-03-21T13:00:00Z"),
       submittedAt: new Date("2026-03-21T13:30:00Z"),
       evalResult: "Excellent conflict resolution skills. Student facilitated a productive discussion between parties.",
     },
@@ -335,13 +432,22 @@ async function main() {
 
   console.log("✅ Created learning attempts");
 
+  // ============================================================================
+  // SUMMARY
+  // ============================================================================
+
   console.log("\n🎉 Database seeded successfully!");
   console.log("\n📊 Summary:");
-  console.log("   - 2 Professors");
-  console.log("   - 5 Students");
+  console.log("   - 1 Admin (admin@example.com / admin123)");
+  console.log("   - 2 Professors (professor.smith@case.edu, professor.chen@case.edu / prof123)");
+  console.log("   - 6 Students (alice.johnson@case.edu, etc. / student123)");
   console.log("   - 2 Cohorts");
   console.log("   - 3 Cases");
   console.log("   - 7 Attempts (learning records)");
+  console.log("\n🔐 Test Credentials:");
+  console.log("   Admin:     admin@example.com / admin123");
+  console.log("   Professor: professor.smith@case.edu / prof123");
+  console.log("   Student:   student@case.edu / student123");
 }
 
 main()
