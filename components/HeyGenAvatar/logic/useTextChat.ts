@@ -1,66 +1,29 @@
-import { TaskMode, TaskType } from "@heygen/streaming-avatar";
 import { useCallback } from "react";
-
 import { useStreamingAvatarContext } from "./context";
 
 export const useTextChat = () => {
-  const { avatarRef } = useStreamingAvatarContext();
+  const { sessionRef } = useStreamingAvatarContext();
 
   const sendMessage = useCallback(
     (message: string) => {
-      if (!avatarRef.current) return;
-      avatarRef.current.speak({
-        text: message,
-        taskType: TaskType.TALK,
-        taskMode: TaskMode.ASYNC,
-      });
+      if (!sessionRef.current) return;
+      return sessionRef.current.message(message);
     },
-    [avatarRef],
-  );
-
-  const sendMessageSync = useCallback(
-    async (message: string) => {
-      if (!avatarRef.current) return;
-
-      return await avatarRef.current?.speak({
-        text: message,
-        taskType: TaskType.TALK,
-        taskMode: TaskMode.SYNC,
-      });
-    },
-    [avatarRef],
+    [sessionRef],
   );
 
   const repeatMessage = useCallback(
     (message: string) => {
-      if (!avatarRef.current) return;
-
-      return avatarRef.current?.speak({
-        text: message,
-        taskType: TaskType.REPEAT,
-        taskMode: TaskMode.ASYNC,
-      });
+      if (!sessionRef.current) return;
+      return sessionRef.current.repeat(message);
     },
-    [avatarRef],
-  );
-
-  const repeatMessageSync = useCallback(
-    async (message: string) => {
-      if (!avatarRef.current) return;
-
-      return await avatarRef.current?.speak({
-        text: message,
-        taskType: TaskType.REPEAT,
-        taskMode: TaskMode.SYNC,
-      });
-    },
-    [avatarRef],
+    [sessionRef],
   );
 
   return {
     sendMessage,
-    sendMessageSync,
+    sendMessageSync: sendMessage,
     repeatMessage,
-    repeatMessageSync,
+    repeatMessageSync: repeatMessage,
   };
 };

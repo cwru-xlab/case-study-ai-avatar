@@ -1,4 +1,3 @@
-import { TaskType, TaskMode } from "@heygen/streaming-avatar";
 import React, { useCallback, useEffect, useState } from "react";
 import { usePrevious } from "ahooks";
 import { Select, SelectItem } from "@heroui/select";
@@ -8,37 +7,26 @@ import { useTextChat } from "../logic/useTextChat";
 import { Input } from "@heroui/input";
 import { useConversationState } from "../logic/useConversationState";
 
+type TaskType = "repeat";
+type TaskMode = "sync" | "async";
+
 export const TextInput: React.FC = () => {
-  const { sendMessage, sendMessageSync, repeatMessage, repeatMessageSync } =
-    useTextChat();
+  const { repeatMessage, repeatMessageSync } = useTextChat();
   const { startListening, stopListening } = useConversationState();
-  const [taskType, setTaskType] = useState<TaskType>(TaskType.REPEAT);
-  const [taskMode, setTaskMode] = useState<TaskMode>(TaskMode.SYNC);
+  const [taskType] = useState<TaskType>("repeat");
+  const [taskMode, setTaskMode] = useState<TaskMode>("sync");
   const [message, setMessage] = useState("");
 
   const handleSend = useCallback(() => {
-    if (message.trim() === "") {
-      return;
-    }
-    if (taskType === TaskType.TALK) {
-      taskMode === TaskMode.SYNC
-        ? sendMessageSync(message)
-        : sendMessage(message);
+    if (message.trim() === "") return;
+
+    if (taskMode === "sync") {
+      repeatMessageSync(message);
     } else {
-      taskMode === TaskMode.SYNC
-        ? repeatMessageSync(message)
-        : repeatMessage(message);
+      repeatMessage(message);
     }
     setMessage("");
-  }, [
-    taskType,
-    taskMode,
-    message,
-    sendMessage,
-    sendMessageSync,
-    repeatMessage,
-    repeatMessageSync,
-  ]);
+  }, [taskMode, message, repeatMessage, repeatMessageSync]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -48,7 +36,6 @@ export const TextInput: React.FC = () => {
     };
 
     window.addEventListener("keydown", handleKeyDown);
-
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [handleSend]);
 
@@ -67,17 +54,12 @@ export const TextInput: React.FC = () => {
       <Select
         label="Task Type"
         placeholder="Select task type"
-        selectedKeys={[TaskType.REPEAT]}
-        onSelectionChange={(keys) => {
-          const selectedKey = Array.from(keys)[0] as TaskType;
-          setTaskType(selectedKey);
-        }}
+        selectedKeys={["repeat"]}
+        isDisabled
         size="sm"
         className="w-48"
       >
-        <SelectItem key={TaskType.REPEAT}>
-          {TaskType.REPEAT.toUpperCase()}
-        </SelectItem>
+        <SelectItem key="repeat">REPEAT</SelectItem>
       </Select>
       <Select
         label="Task Mode"
@@ -90,13 +72,12 @@ export const TextInput: React.FC = () => {
         size="sm"
         className="w-48"
       >
-        {Object.values(TaskMode).map((option) => (
-          <SelectItem key={option}>{option.toUpperCase()}</SelectItem>
-        ))}
+        <SelectItem key="sync">SYNC</SelectItem>
+        <SelectItem key="async">ASYNC</SelectItem>
       </Select>
       <Input
         className="w-full"
-        placeholder={`Type something for the avatar to ${taskType === TaskType.REPEAT ? "repeat" : "respond"}...`}
+        placeholder={`Type something for the avatar to ${taskType === "repeat" ? "repeat" : "respond"}...`}
         value={message}
         onChange={(e) => setMessage(e.target.value)}
       />

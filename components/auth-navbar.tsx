@@ -1,15 +1,5 @@
 "use client";
 
-import {
-  Navbar as HeroUINavbar,
-  NavbarContent,
-  NavbarMenu,
-  NavbarBrand,
-  NavbarItem,
-  NavbarMenuItem,
-} from "@heroui/navbar";
-import { Button } from "@heroui/button";
-import { link as linkStyles } from "@heroui/theme";
 import NextLink from "next/link";
 import { usePathname } from "next/navigation";
 import clsx from "clsx";
@@ -18,31 +8,44 @@ import {
   Home,
   Settings,
   Users,
-  Info,
-  BotMessageSquare,
   ChartColumnBig,
-  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   User,
   Mail,
+  Video,
+  Briefcase,
+  History,
+  GraduationCap,
+  QrCode,
+  LogOut,
+  Menu,
+  X,
 } from "lucide-react";
+import { useState } from "react";
 
 import { siteConfig } from "@/config/site";
 import { ThemeSwitch } from "@/components/theme-switch";
 import { WeatherheadLogo } from "@/components/kiosk";
 
-// Icon mapping for navigation items
 const iconMap = {
   Home,
   Settings,
   Users,
   ChartColumnBig,
   Mail,
-  Info,
+  Video,
+  Briefcase,
+  History,
+  GraduationCap,
+  QrCode,
 } as const;
 
 export const AuthNavbar = () => {
   const { user, logout, loading } = useAuth();
   const pathname = usePathname();
+  const [collapsed, setCollapsed] = useState(false);
+  const [mobileOpen, setMobileOpen] = useState(false);
 
   if (pathname.startsWith("/kiosk")) {
     return null;
@@ -50,233 +53,208 @@ export const AuthNavbar = () => {
 
   if (loading) {
     return (
-      <HeroUINavbar maxWidth="xl" position="sticky">
-        <NavbarContent justify="center">
-          <div>Loading...</div>
-        </NavbarContent>
-      </HeroUINavbar>
+      <aside className="hidden md:flex flex-col items-center justify-center w-64 min-h-screen bg-background border-r border-divider">
+        <div className="text-sm text-default-500">Loading...</div>
+      </aside>
     );
   }
 
-  return (
-    <HeroUINavbar maxWidth="xl" position="sticky">
-      <NavbarContent className="basis-1/5 sm:basis-full" justify="start">
-        <NavbarBrand as="li" className="gap-3 max-w-fit">
-          <NextLink
-            className="flex xl:flex-col justify-start items-center"
-            href="/"
-          >
-            <p className="font-bold text-xl text-inherit mb-0 xl:mb-[-10] mr-10 xl:mr-0">
-              AI Avatar Kiosk
-            </p>
+  const navItems =
+    user?.role === "student"
+      ? siteConfig.studentNavItems
+      : siteConfig.navItems;
+
+  const sidebarWidth = collapsed ? "w-[68px]" : "w-64";
+
+  const sidebarContent = (
+    <div className="flex flex-col h-full">
+      {/* Brand */}
+      <div className={clsx("p-4 border-b border-divider", collapsed && "px-2")}>
+        <NextLink
+          className={clsx(
+            "flex items-center gap-3",
+            collapsed && "justify-center"
+          )}
+          href="/"
+          onClick={() => setMobileOpen(false)}
+        >
+          {collapsed ? (
             <WeatherheadLogo variant="inline" />
-          </NextLink>
-        </NavbarBrand>
+          ) : (
+            <>
+              <div className="flex flex-col">
+                <p className="font-bold text-lg text-inherit leading-tight">
+                  AI Case Study
+                </p>
+              </div>
+            </>
+          )}
+        </NextLink>
+        {!collapsed && (
+          <div className="mt-2">
+            <WeatherheadLogo variant="inline" />
+          </div>
+        )}
+      </div>
+
+      {/* Nav Items */}
+      {user && (
+        <nav className="flex-1 overflow-y-auto py-2">
+          <ul className="flex flex-col gap-0.5 px-2">
+            {navItems.map((item) => {
+              const IconComponent =
+                iconMap[item.icon as keyof typeof iconMap];
+              const isActive = pathname === item.href;
+              return (
+                <li key={item.href}>
+                  <NextLink
+                    className={clsx(
+                      "flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors text-sm",
+                      collapsed && "justify-center px-2",
+                      isActive
+                        ? "bg-primary/10 text-primary font-medium"
+                        : "text-foreground hover:bg-default-100 hover:text-primary"
+                    )}
+                    href={item.href}
+                    title={collapsed ? item.label : undefined}
+                    onClick={() => setMobileOpen(false)}
+                  >
+                    {IconComponent && (
+                      <IconComponent size={20} className="shrink-0" />
+                    )}
+                    {!collapsed && <span>{item.label}</span>}
+                  </NextLink>
+                </li>
+              );
+            })}
+            {process.env.NODE_ENV !== "production" && (
+              <li>
+                <NextLink
+                  href="/test-pages"
+                  className={clsx(
+                    "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm bg-blue-600 text-white hover:bg-blue-700 transition-colors font-semibold mt-1",
+                    collapsed && "justify-center px-2"
+                  )}
+                  title={collapsed ? "Test Pages" : undefined}
+                  onClick={() => setMobileOpen(false)}
+                >
+                  {!collapsed && <span>Test Pages</span>}
+                  {collapsed && <span className="text-xs">TP</span>}
+                </NextLink>
+              </li>
+            )}
+          </ul>
+        </nav>
+      )}
+
+      {/* Bottom Section: Theme, User Info, Logout */}
+      <div className="mt-auto border-t border-divider p-3">
+        <div
+          className={clsx(
+            "flex items-center mb-3",
+            collapsed ? "justify-center" : "justify-between px-1"
+          )}
+        >
+          {!collapsed && (
+            <span className="text-xs text-default-500">Theme</span>
+          )}
+          <ThemeSwitch />
+        </div>
+
         {user && (
           <>
-            {/* Desktop Navigation */}
-            <ul className="hidden xl:flex gap-4 justify-start ml-2">
-              {siteConfig.navItems.map((item) => {
-                const IconComponent =
-                  iconMap[item.icon as keyof typeof iconMap];
-                const isActive = pathname === item.href;
-                return (
-                  <NavbarItem key={item.href} className="flex items-center">
-                    <NextLink
-                      className={clsx(
-                        linkStyles({ color: "foreground" }),
-                        "flex items-center gap-2",
-                        isActive
-                          ? "text-primary font-medium"
-                          : "text-foreground hover:text-primary transition-colors"
-                      )}
-                      color="foreground"
-                      href={item.href}
-                    >
-                      {IconComponent && <IconComponent size={20} />}
-                      {item.label}
-                    </NextLink>
-                  </NavbarItem>
-                );
-              })}
-              {/* DEV/ADMIN: Link to Chat Storage Test Page. Hidden in production! */}
-              {process.env.NODE_ENV !== "production" && (
-                <NavbarItem>
-                  <NextLink
-                    href="/test-pages"
-                    className="px-3 py-2 bg-blue-600 text-white rounded-lg shadow hover:bg-blue-700 transition-colors text-sm font-semibold ml-2"
-                    style={{ display: "inline-block" }}
-                  >
-                    Test Pages
-                  </NextLink>
-                </NavbarItem>
-              )}
-            </ul>
-
-            {/* Mobile/Narrow Screen Dropdown */}
-            <div className="xl:hidden relative group">
-              {(() => {
-                const currentItem = siteConfig.navItems.find(
-                  (item) => item.href === pathname
-                );
-                const CurrentIcon = currentItem
-                  ? iconMap[currentItem.icon as keyof typeof iconMap]
-                  : Home;
-                const currentLabel = currentItem ? currentItem.label : "Menu";
-
-                return (
-                  <div className="flex items-center gap-1 px-2 py-1 cursor-pointer text-foreground hover:text-primary transition-colors whitespace-nowrap">
-                    {CurrentIcon && <CurrentIcon size={20} />}
-                    <span>{currentLabel}</span>
-                    <ChevronDown size={16} />
-                  </div>
-                );
-              })()}
-
-              {/* Dropdown Menu */}
-              <div className="absolute top-full left-0 mt-1 bg-background border border-divider rounded-lg shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50 min-w-48">
-                <ul className="py-2">
-                  {siteConfig.navItems.map((item) => {
-                    const IconComponent =
-                      iconMap[item.icon as keyof typeof iconMap];
-                    const isActive = pathname === item.href;
-                    return (
-                      <li key={item.href}>
-                        <NextLink
-                          className={clsx(
-                            "flex items-center gap-3 px-4 py-2 hover:bg-default-100 transition-colors",
-                            isActive
-                              ? "text-primary font-medium bg-primary/10"
-                              : "text-foreground"
-                          )}
-                          href={item.href}
-                        >
-                          {IconComponent && <IconComponent size={20} />}
-                          {item.label}
-                        </NextLink>
-                      </li>
-                    );
-                  })}
-                  {/* DEV/ADMIN: Link to Chat Storage Test Page. Hidden in production! */}
-                  {process.env.NODE_ENV !== "production" && (
-                    <li>
-                      <NextLink
-                        href="/test-pages"
-                        className="flex items-center gap-3 px-4 py-2 bg-blue-600 text-white rounded-lg shadow hover:bg-blue-700 transition-colors text-sm font-semibold mt-1"
-                      >
-                        Test Pages
-                      </NextLink>
-                    </li>
-                  )}
-                </ul>
+            {!collapsed && (
+              <div className="px-1 mb-3">
+                <p className="text-sm text-default-600 font-medium truncate">
+                  {user.name}
+                </p>
+                {user.authProvider === "cwru_sso" && (
+                  <p className="text-xs text-default-500 truncate">
+                    CWRU SSO{user.studentId && ` • ID: ${user.studentId}`}
+                  </p>
+                )}
+                {user.authProvider === "email" && (
+                  <p className="text-xs text-default-500 truncate">
+                    Email Login • {user.role}
+                  </p>
+                )}
               </div>
-            </div>
+            )}
+            {collapsed && (
+              <div className="flex justify-center mb-3" title={user.name}>
+                <User size={20} className="text-default-500" />
+              </div>
+            )}
+            <button
+              onClick={logout}
+              className={clsx(
+                "flex items-center gap-2 w-full px-3 py-2 rounded-lg text-sm text-danger hover:bg-danger/10 transition-colors",
+                collapsed && "justify-center px-2"
+              )}
+              title={collapsed ? "Logout" : undefined}
+            >
+              <LogOut size={18} className="shrink-0" />
+              {!collapsed && <span>Logout</span>}
+            </button>
           </>
         )}
-      </NavbarContent>
+      </div>
 
-      <NavbarContent className="basis-1/5 sm:basis-full" justify="end">
-        {/* Desktop Right Side Items */}
-        <NavbarItem className="hidden xl:flex gap-2">
-          <ThemeSwitch />
-        </NavbarItem>
-
-        {user && (
-          <NavbarItem className="hidden xl:flex gap-2">
-            <div className="flex flex-col items-end whitespace-nowrap">
-              <span className="text-sm text-default-600">
-                Welcome, {user.name}
-              </span>
-              {user.authProvider === "cwru_sso" && (
-                <span className="text-xs text-default-500">
-                  CWRU SSO {user.studentId && `• ID: ${user.studentId}`}
-                </span>
-              )}
-              {user.authProvider === "email" && (
-                <span className="text-xs text-default-500">
-                  Email Login • {user.role}
-                </span>
-              )}
-            </div>
-            <Button color="danger" variant="light" size="sm" onClick={logout}>
-              Logout
-            </Button>
-          </NavbarItem>
-        )}
-
-        {/* Mobile/Narrow Screen User Dropdown */}
-        {user && (
-          <div className="xl:hidden relative group">
-            <div className="flex items-center gap-1 px-2 py-1 cursor-pointer text-foreground hover:text-primary transition-colors whitespace-nowrap">
-              <User size={20} />
-              <span className="hidden sm:inline">
-                {user.name.split(" ")[0]}
-              </span>
-              <ChevronDown size={16} />
-            </div>
-
-            {/* User Dropdown Menu */}
-            <div className="absolute top-full right-0 mt-1 bg-background border border-divider rounded-lg shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50 min-w-64">
-              <div className="p-4 border-b border-divider">
-                <div className="flex flex-col">
-                  <span className="text-sm text-default-600 font-medium">
-                    Welcome, {user.name}
-                  </span>
-                  {user.authProvider === "cwru_sso" && (
-                    <span className="text-xs text-default-500 mt-1">
-                      CWRU SSO {user.studentId && `• ID: ${user.studentId}`}
-                    </span>
-                  )}
-                  {user.authProvider === "email" && (
-                    <span className="text-xs text-default-500 mt-1">
-                      Email Login • {user.role}
-                    </span>
-                  )}
-                </div>
-              </div>
-              <div className="p-3 space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-foreground">Theme</span>
-                  <ThemeSwitch />
-                </div>
-                <Button
-                  color="danger"
-                  variant="flat"
-                  size="sm"
-                  onClick={logout}
-                  className="w-full"
-                >
-                  Logout
-                </Button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Theme switch for non-logged in users on narrow screens */}
-        {!user && (
-          <div className="lg:hidden">
-            <ThemeSwitch />
-          </div>
-        )}
-      </NavbarContent>
-
-      <NavbarMenu>
-        <div className="mx-4 mt-2 flex flex-col gap-2">
-          {user && (
-            <NavbarMenuItem>
-              <Button
-                color="danger"
-                variant="flat"
-                onClick={logout}
-                className="w-full"
-              >
-                Log Out
-              </Button>
-            </NavbarMenuItem>
+      {/* Collapse Toggle (desktop only) */}
+      <div className="hidden md:flex border-t border-divider p-2">
+        <button
+          onClick={() => setCollapsed(!collapsed)}
+          className="flex items-center justify-center w-full p-2 rounded-lg text-default-500 hover:bg-default-100 hover:text-foreground transition-colors"
+          title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+        >
+          {collapsed ? (
+            <ChevronRight size={18} />
+          ) : (
+            <ChevronLeft size={18} />
           )}
-        </div>
-      </NavbarMenu>
-    </HeroUINavbar>
+        </button>
+      </div>
+    </div>
+  );
+
+  return (
+    <>
+      {/* Mobile hamburger button */}
+      <button
+        className="md:hidden fixed top-4 left-4 z-60 p-2 rounded-lg bg-background border border-divider shadow-md"
+        onClick={() => setMobileOpen(!mobileOpen)}
+        aria-label="Toggle navigation"
+      >
+        {mobileOpen ? <X size={20} /> : <Menu size={20} />}
+      </button>
+
+      {/* Mobile overlay */}
+      {mobileOpen && (
+        <div
+          className="md:hidden fixed inset-0 bg-black/40 z-40"
+          onClick={() => setMobileOpen(false)}
+        />
+      )}
+
+      {/* Mobile sidebar */}
+      <aside
+        className={clsx(
+          "md:hidden fixed top-0 left-0 z-50 h-full w-64 bg-background border-r border-divider transition-transform duration-200",
+          mobileOpen ? "translate-x-0" : "-translate-x-full"
+        )}
+      >
+        {sidebarContent}
+      </aside>
+
+      {/* Desktop sidebar */}
+      <aside
+        className={clsx(
+          "hidden md:flex flex-col min-h-screen bg-background border-r border-divider transition-all duration-200 shrink-0",
+          sidebarWidth
+        )}
+      >
+        {sidebarContent}
+      </aside>
+    </>
   );
 };

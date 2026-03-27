@@ -29,22 +29,42 @@ export interface LLMRequest {
   systemPrompt?: string; // Only for preview route
 }
 
-// Mock avatar storage - in a real app, this would be a database
-const MOCK_AVATARS: Record<string, string> = {
-  "helpful-assistant":
-    "You are a helpful assistant. Keep your responses concise and engaging.",
-  "creative-writer":
-    "You are a creative writing assistant. Help users with storytelling, poetry, and creative content. Be imaginative and inspiring.",
-  "technical-expert":
-    "You are a technical expert. Provide clear, accurate technical explanations and solutions. Be precise and thorough.",
-  "friendly-tutor":
-    "You are a friendly tutor. Explain concepts in simple terms and encourage learning. Be patient and supportive.",
-  "cat-assistant":
-    "You are a helpful assistant. Keep your responses concise and engaging. Say mew at the end of your responses.",
-};
+// Default fallback prompt
+const DEFAULT_SYSTEM_PROMPT = "You are a helpful assistant. Keep your responses concise and engaging.";
+
+// Cache for avatar system prompts to avoid repeated S3 calls
+const promptCache = new Map<string, { prompt: string; timestamp: number }>();
+const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
 export function getAvatarSystemPrompt(avatarId: string): string {
-  return MOCK_AVATARS[avatarId] || MOCK_AVATARS["helpful-assistant"];
+  // Synchronous getter for backward compatibility - returns cached or default
+  const cached = promptCache.get(avatarId);
+  if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
+    return cached.prompt;
+  }
+  return DEFAULT_SYSTEM_PROMPT;
+}
+
+export async function fetchAvatarSystemPrompt(avatarId: string): Promise<string> {
+  // Check cache first
+  const cached = promptCache.get(avatarId);
+  if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
+    return cached.prompt;
+  }
+
+  try {
+    // Try to load from S3 avatar storage
+    const { s3Storage } = await import("@/lib/s3-client");
+    const avatar = await s3Storage.getAvatar(avatarId);
+    if (avatar?.systemPrompt) {
+      promptCache.set(avatarId, { prompt: avatar.systemPrompt, timestamp: Date.now() });
+      return avatar.systemPrompt;
+    }
+  } catch (error) {
+    console.error(`Failed to fetch avatar system prompt for ${avatarId}:`, error);
+  }
+
+  return DEFAULT_SYSTEM_PROMPT;
 }
 
 export function createLLMStream(

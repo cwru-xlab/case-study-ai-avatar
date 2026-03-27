@@ -1,0 +1,1065 @@
+"use client";
+
+import { useState, useEffect, useRef, useCallback } from "react";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
+import { Button } from "@heroui/button";
+import { Card, CardBody, CardHeader } from "@heroui/card";
+import { Chip } from "@heroui/chip";
+import { Spinner } from "@heroui/spinner";
+import { Input } from "@heroui/input";
+import {
+  ArrowLeft,
+  Play,
+  Eye,
+  Users,
+  Send,
+  LogOut,
+  CheckCircle,
+  MessageSquare,
+  Clock,
+  Type,
+  Video,
+  Mic,
+  MicOff,
+  RotateCcw,
+} from "lucide-react";
+import {
+  Modal,
+  ModalContent,
+  ModalHeader,
+  ModalBody,
+  ModalFooter,
+} from "@heroui/modal";
+import { addToast } from "@heroui/toast";
+import { title } from "@/components/primitives";
+import { useAuth } from "@/lib/auth-context";
+import type { CaseStudy, CaseAvatar, InteractionLog, RoleMessage, RoleInteraction, InteractionEvent, StartAvatarRequest, VideoAudioProfile } from "@/types";
+import InteractiveAvatarWrapper, { InteractiveAvatarRef } from "@/components/HeyGenAvatar/InteractiveAvatar";
+
+type PageState = "intro" | "playing";
+type InteractionMode = "text" | "avatar";
+
+interface InteractionIndexEntry {
+  id: string;
+  attemptNumber: number;
+  mode: string;
+  status: string;
+  startedAt: number;
+  completedAt?: number;
+  totalMessages: number;
+  totalTimeSeconds: number;
+  evalScore?: number;
+  updatedAt: string;
+}
+
+export default function CasePlayPage() {
+  const params = useParams();
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const { user } = useAuth();
+  const caseId = params.caseId as string;
+  const cohortId = searchParams.get("cohortId") || "";
+
+  const [caseData, setCaseData] = useState<CaseStudy | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [pageState, setPageState] = useState<PageState>("intro");
+  const [interactionLog, setInteractionLog] = useState<InteractionLog | null>(null);
+  const [mode, setMode] = useState<"explore" | "assessed">("assessed");
+
+  // Unfinished session state
+  const [unfinishedSessions, setUnfinishedSessions] = useState<InteractionIndexEntry[]>([]);
+  const [resuming, setResuming] = useState(false);
+
+  // Role interaction state
+  const [selectedRole, setSelectedRole] = useState<CaseAvatar | null>(null);
+  const [chatMessages, setChatMessages] = useState<Record<string, RoleMessage[]>>({});
+  const [currentInput, setCurrentInput] = useState("");
+  const [sending, setSending] = useState(false);
+  const [finishing, setFinishing] = useState(false);
+  const chatEndRef = useRef<HTMLDivElement>(null);
+  const autoSaveRef = useRef<NodeJS.Timeout | null>(null);
+  const interactionLogRef = useRef<InteractionLog | null>(null);
+
+  // Interaction mode state (text vs avatar)
+  const [interactionMode, setInteractionMode] = useState<InteractionMode>("text");
+  const avatarRef = useRef<InteractiveAvatarRef>(null);
+  const [avatarConfig, setAvatarConfig] = useState<StartAvatarRequest | null>(null);
+  const [avatarConfigLoading, setAvatarConfigLoading] = useState(false);
+
+  // Finish confirmation modal
+  const [showFinishModal, setShowFinishModal] = useState(false);
+
+  // Push-to-talk state for avatar mode
+  const [isRecording, setIsRecording] = useState(false);
+  const [isTranscribing, setIsTranscribing] = useState(false);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+
+  // Load case data
+  useEffect(() => {
+    loadCase();
+  }, [caseId]);
+
+  // Load unfinished sessions once we have user + caseId
+  useEffect(() => {
+    if (user?.email && caseId) {
+      loadUnfinishedSessions();
+    }
+  }, [user?.email, caseId]);
+
+  const loadUnfinishedSessions = async () => {
+    if (!user?.email) return;
+    try {
+      const res = await fetch(
+        `/api/interaction/get?studentEmail=${encodeURIComponent(user.email)}&caseId=${encodeURIComponent(caseId)}`
+      );
+      if (!res.ok) return;
+      const data = await res.json();
+      const inProgress = (data.logs || []).filter(
+        (entry: InteractionIndexEntry) => entry.status === "in_progress"
+      );
+      setUnfinishedSessions(inProgress);
+    } catch (err) {
+      console.error("Failed to load unfinished sessions:", err);
+    }
+  };
+
+  const loadCase = async () => {
+    try {
+      const res = await fetch(`/api/case/get?id=${encodeURIComponent(caseId)}`);
+      if (!res.ok) throw new Error("Case not found");
+      const data = await res.json();
+      setCaseData(data.caseStudy);
+    } catch (err) {
+      console.error("Failed to load case:", err);
+      addToast({ title: "Failed to load case", color: "danger" });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Auto-scroll chat
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [chatMessages, selectedRole]);
+
+  // Keep ref in sync so auto-save always has the latest log
+  useEffect(() => {
+    interactionLogRef.current = interactionLog;
+  }, [interactionLog]);
+
+  // Auto-save every 15 seconds for assessed mode
+  useEffect(() => {
+    if (pageState === "playing" && mode === "assessed" && interactionLog) {
+      autoSaveRef.current = setInterval(() => {
+        if (interactionLogRef.current) {
+          saveInteraction(interactionLogRef.current);
+        }
+      }, 5000);
+
+      return () => {
+        if (autoSaveRef.current) clearInterval(autoSaveRef.current);
+      };
+    }
+  }, [pageState, mode, interactionLog]);
+
+  // Load avatar profile config when role changes or when switching to avatar mode
+  useEffect(() => {
+    if (interactionMode === "avatar" && selectedRole?.profileId) {
+      loadAvatarConfig(selectedRole.profileId);
+    }
+  }, [interactionMode, selectedRole]);
+
+  const loadAvatarConfig = async (profileId: string) => {
+    setAvatarConfigLoading(true);
+    try {
+      const res = await fetch(`/api/profile/get?id=${encodeURIComponent(profileId)}`);
+      if (!res.ok) throw new Error("Failed to load profile");
+      const data = await res.json();
+      const profile: VideoAudioProfile = data.profile;
+      setAvatarConfig({
+        quality: profile.quality,
+        avatarName: profile.avatarName,
+        knowledgeId: profile.knowledgeId,
+        voice: profile.voice,
+        language: profile.language,
+      });
+    } catch (err) {
+      console.error("Failed to load avatar profile:", err);
+      addToast({ title: "Failed to load avatar profile, using defaults", color: "warning" });
+      setAvatarConfig(null);
+    } finally {
+      setAvatarConfigLoading(false);
+    }
+  };
+
+  const saveInteraction = async (log: InteractionLog) => {
+    if (log.mode !== "assessed") return;
+    try {
+      await fetch("/api/interaction/save", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ log }),
+      });
+    } catch (err) {
+      console.error("Auto-save failed:", err);
+    }
+  };
+
+  const handleStart = async (selectedMode: "explore" | "assessed") => {
+    if (!user?.email || !caseData) return;
+
+    setMode(selectedMode);
+
+    try {
+      const res = await fetch("/api/interaction/start", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          studentEmail: user.email,
+          studentName: user.name,
+          caseId: caseData.id,
+          caseName: caseData.name,
+          cohortId,
+          mode: selectedMode,
+        }),
+      });
+
+      if (!res.ok) throw new Error("Failed to start interaction");
+      const data = await res.json();
+      setInteractionLog(data.log);
+      setChatMessages({});
+      setPageState("playing");
+    } catch (err) {
+      console.error("Failed to start:", err);
+      addToast({ title: "Failed to start session", color: "danger" });
+    }
+  };
+
+  const handleResume = async (session: InteractionIndexEntry) => {
+    if (!user?.email || !caseData) return;
+
+    setResuming(true);
+    try {
+      const res = await fetch(
+        `/api/interaction/get?studentEmail=${encodeURIComponent(user.email)}&caseId=${encodeURIComponent(caseId)}&logId=${encodeURIComponent(session.id)}`
+      );
+      if (!res.ok) throw new Error("Failed to load session");
+      const data = await res.json();
+      const log: InteractionLog = data.log;
+
+      // Restore chat messages from the interaction log (deep copy to avoid shared references)
+      const restoredMessages: Record<string, RoleMessage[]> = {};
+      for (const [roleId, roleInteraction] of Object.entries(log.roleInteractions) as [string, RoleInteraction][]) {
+        if (roleInteraction.messages.length > 0) {
+          restoredMessages[roleId] = [...roleInteraction.messages];
+        }
+      }
+
+      // Add a resume event
+      log.events.push({
+        type: "start_session",
+        timestamp: Date.now(),
+      });
+      log.updatedAt = new Date().toISOString();
+
+      setMode(log.mode as "explore" | "assessed");
+      setInteractionLog(log);
+      setChatMessages(restoredMessages);
+      setPageState("playing");
+
+      // Immediately save so the resume event is persisted
+      if (log.mode === "assessed") {
+        saveInteraction(log);
+      }
+
+      addToast({ title: "Session resumed", color: "success" });
+    } catch (err) {
+      console.error("Failed to resume session:", err);
+      addToast({ title: "Failed to resume session", color: "danger" });
+    } finally {
+      setResuming(false);
+    }
+  };
+
+  const handleSelectRole = (role: CaseAvatar) => {
+    if (!interactionLog) return;
+
+    const now = Date.now();
+
+    // If we were in another role, add exit event
+    if (selectedRole && selectedRole.id !== role.id) {
+      const exitEvent: InteractionEvent = {
+        type: "exit_role",
+        roleId: selectedRole.id,
+        roleName: selectedRole.name,
+        timestamp: now,
+      };
+      interactionLog.events.push(exitEvent);
+
+      // Update the exitedAt for the previous role
+      if (interactionLog.roleInteractions[selectedRole.id]) {
+        interactionLog.roleInteractions[selectedRole.id].exitedAt = now;
+      }
+
+      // Stop avatar session when switching roles
+      if (interactionMode === "avatar") {
+        avatarRef.current?.stopSession();
+      }
+    }
+
+    // Add enter event
+    const enterEvent: InteractionEvent = {
+      type: "enter_role",
+      roleId: role.id,
+      roleName: role.name,
+      timestamp: now,
+    };
+    interactionLog.events.push(enterEvent);
+
+    // Ensure role interaction exists
+    if (!interactionLog.roleInteractions[role.id]) {
+      interactionLog.roleInteractions[role.id] = {
+        roleId: role.id,
+        roleName: role.name,
+        messages: [],
+        enteredAt: now,
+      };
+    } else {
+      // Re-entering an existing role
+      interactionLog.roleInteractions[role.id].enteredAt = now;
+      interactionLog.roleInteractions[role.id].exitedAt = undefined;
+    }
+
+    setSelectedRole(role);
+    setInteractionLog({ ...interactionLog });
+  };
+
+  const handleSwitchInteractionMode = (newMode: InteractionMode) => {
+    if (newMode === interactionMode) return;
+    if (!interactionLog || !selectedRole) return;
+
+    const now = Date.now();
+
+    // Log the mode switch event
+    const switchEvent: InteractionEvent = {
+      type: "switch_interaction_mode",
+      roleId: selectedRole.id,
+      roleName: selectedRole.name,
+      timestamp: now,
+      interactionMode: newMode,
+    };
+    interactionLog.events.push(switchEvent);
+    setInteractionLog({ ...interactionLog });
+
+    // Stop avatar session when switching away from avatar mode
+    if (interactionMode === "avatar" && newMode === "text") {
+      avatarRef.current?.stopSession();
+    }
+
+    setInteractionMode(newMode);
+  };
+
+  // Shared function to send a message and get AI response (used by both text and voice input)
+  const sendMessageAndGetResponse = async (userMessage: string) => {
+    if (!selectedRole || !interactionLog || !caseData) return;
+
+    setSending(true);
+
+    const now = Date.now();
+    const userMsg: RoleMessage = { role: "user", content: userMessage, timestamp: now };
+    const roleId = selectedRole.id;
+
+    // Update local chat state
+    setChatMessages((prev) => ({
+      ...prev,
+      [roleId]: [...(prev[roleId] || []), userMsg],
+    }));
+
+    // Update interaction log
+    interactionLog.roleInteractions[roleId].messages.push(userMsg);
+    interactionLog.events.push({
+      type: "send_message",
+      roleId,
+      roleName: selectedRole.name,
+      timestamp: now,
+      messageContent: userMessage,
+      messageRole: "user",
+    });
+
+    try {
+      const roleHistory = interactionLog.roleInteractions[roleId].messages.map((m) => ({
+        role: m.role,
+        content: m.content,
+      }));
+
+      const res = await fetch("/api/interaction/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          messages: roleHistory,
+          systemPrompt: `Background information about this case study:\n${caseData.backgroundInfo}`,
+          roleContext: {
+            roleName: selectedRole.name,
+            role: selectedRole.role,
+            additionalInfo: selectedRole.additionalInfo,
+          },
+        }),
+      });
+
+      if (!res.ok) throw new Error("Chat failed");
+      const data = await res.json();
+
+      const assistantMsg: RoleMessage = {
+        role: "assistant",
+        content: data.message,
+        timestamp: Date.now(),
+      };
+
+      setChatMessages((prev) => ({
+        ...prev,
+        [roleId]: [...(prev[roleId] || []), assistantMsg],
+      }));
+
+      interactionLog.roleInteractions[roleId].messages.push(assistantMsg);
+      interactionLog.events.push({
+        type: "receive_message",
+        roleId,
+        roleName: selectedRole.name,
+        timestamp: Date.now(),
+        messageContent: data.message,
+        messageRole: "assistant",
+      });
+
+      setInteractionLog({ ...interactionLog });
+
+      // If in avatar mode, have the avatar speak the response
+      if (interactionMode === "avatar") {
+        avatarRef.current?.speak(data.message);
+      }
+
+      return data.message;
+    } catch (err) {
+      console.error("Chat error:", err);
+      addToast({ title: "Failed to get response", color: "danger" });
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const handleSendMessage = async () => {
+    if (!currentInput.trim()) return;
+    const userMessage = currentInput.trim();
+    setCurrentInput("");
+    await sendMessageAndGetResponse(userMessage);
+  };
+
+  // Push-to-talk handlers for avatar mode
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream, {
+        mimeType: "audio/webm;codecs=opus",
+      });
+      mediaRecorderRef.current = mediaRecorder;
+      audioChunksRef.current = [];
+
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          audioChunksRef.current.push(event.data);
+        }
+      };
+
+      mediaRecorder.onstop = () => {
+        stream.getTracks().forEach((track) => track.stop());
+        processRecording();
+      };
+
+      mediaRecorder.start();
+      setIsRecording(true);
+    } catch (error) {
+      console.error("Error starting recording:", error);
+      addToast({ title: "Could not access microphone", color: "danger" });
+    }
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && isRecording) {
+      mediaRecorderRef.current.stop();
+      setIsRecording(false);
+    }
+  };
+
+  const processRecording = async () => {
+    if (audioChunksRef.current.length === 0) return;
+
+    setIsTranscribing(true);
+
+    try {
+      const audioBlob = new Blob(audioChunksRef.current, { type: "audio/webm" });
+      const formData = new FormData();
+      formData.append("audio", audioBlob, "recording.webm");
+
+      const response = await fetch("/api/audio/transcribe", {
+        method: "POST",
+        body: formData,
+      });
+
+      if (!response.ok) throw new Error("Transcription failed");
+
+      const reader = response.body?.getReader();
+      const decoder = new TextDecoder();
+      if (!reader) throw new Error("No reader available");
+
+      let buffer = "";
+      let transcribedText = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
+
+        for (const line of lines) {
+          if (line.startsWith("data: ")) {
+            try {
+              const data = JSON.parse(line.slice(6));
+              if (data.type === "delta") {
+                transcribedText = data.text;
+              } else if (data.type === "done") {
+                transcribedText = data.text;
+                break;
+              } else if (data.type === "error") {
+                throw new Error("Transcription error");
+              }
+            } catch (parseError) {
+              if (parseError instanceof Error && parseError.message === "Transcription error") {
+                throw parseError;
+              }
+              console.error("Error parsing transcription:", parseError);
+            }
+          }
+        }
+      }
+
+      if (transcribedText.trim()) {
+        await sendMessageAndGetResponse(transcribedText.trim());
+      }
+    } catch (error) {
+      console.error("Error processing recording:", error);
+      addToast({ title: "Failed to transcribe audio", color: "danger" });
+    } finally {
+      setIsTranscribing(false);
+    }
+  };
+
+  const handlePushToTalkDown = () => {
+    if (!sending && !isTranscribing) {
+      startRecording();
+    }
+  };
+
+  const handlePushToTalkUp = () => {
+    if (isRecording) {
+      stopRecording();
+    }
+  };
+
+  const handleFinish = async () => {
+    if (!interactionLog) return;
+
+    setFinishing(true);
+    try {
+      // Clear auto-save
+      if (autoSaveRef.current) clearInterval(autoSaveRef.current);
+
+      // Stop avatar session if active
+      if (interactionMode === "avatar") {
+        avatarRef.current?.stopSession();
+      }
+
+      const res = await fetch("/api/interaction/finish", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ log: interactionLog }),
+      });
+
+      if (!res.ok) throw new Error("Failed to finish");
+
+      addToast({
+        title: mode === "assessed"
+          ? "Session completed! Your evaluation is being processed."
+          : "Explore session completed.",
+        color: "success",
+      });
+
+      router.push("/student-cases");
+    } catch (err) {
+      console.error("Finish error:", err);
+      addToast({ title: "Failed to end session", color: "danger" });
+    } finally {
+      setFinishing(false);
+    }
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      handleSendMessage();
+    }
+  };
+
+  // Check if current role has a profile configured for avatar mode
+  const roleHasAvatarProfile = selectedRole?.profileId != null;
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <Spinner size="lg" label="Loading case..." />
+      </div>
+    );
+  }
+
+  if (!caseData) {
+    return (
+      <div className="max-w-4xl mx-auto text-center py-12">
+        <p className="text-danger text-lg mb-4">Case not found</p>
+        <Button onPress={() => router.push("/student-cases")} startContent={<ArrowLeft className="w-4 h-4" />}>
+          Back to Cases
+        </Button>
+      </div>
+    );
+  }
+
+  // INTRO PAGE
+  if (pageState === "intro") {
+    return (
+      <div className="max-w-4xl mx-auto space-y-6">
+        <div className="flex items-center gap-4">
+          <Button isIconOnly variant="light" onPress={() => router.push("/student-cases")}>
+            <ArrowLeft />
+          </Button>
+          <h1 className={title({ size: "sm" })}>{caseData.name}</h1>
+        </div>
+
+        <Card>
+          <CardHeader>
+            <h2 className="text-xl font-semibold">Background Information</h2>
+          </CardHeader>
+          <CardBody>
+            <p className="text-default-700 whitespace-pre-wrap leading-relaxed">
+              {caseData.backgroundInfo}
+            </p>
+          </CardBody>
+        </Card>
+
+        {caseData.avatars && caseData.avatars.length > 0 && (
+          <Card>
+            <CardHeader>
+              <div className="flex items-center gap-2">
+                <Users className="w-5 h-5" />
+                <h2 className="text-xl font-semibold">People You Can Talk To</h2>
+              </div>
+            </CardHeader>
+            <CardBody>
+              <div className="grid gap-3">
+                {caseData.avatars.map((avatar) => (
+                  <div key={avatar.id} className="p-4 bg-default-50 rounded-lg">
+                    <p className="font-semibold">{avatar.name}</p>
+                    <p className="text-sm text-default-500">{avatar.role}</p>
+                  </div>
+                ))}
+              </div>
+            </CardBody>
+          </Card>
+        )}
+
+        {unfinishedSessions.length > 0 && (
+          <Card className="border-2 border-warning/40">
+            <CardHeader>
+              <div className="flex items-center gap-2">
+                <RotateCcw className="w-5 h-5 text-warning" />
+                <h2 className="text-xl font-semibold">Unfinished Sessions</h2>
+              </div>
+            </CardHeader>
+            <CardBody>
+              <p className="text-sm text-default-500 mb-4">
+                You have sessions in progress. You can continue where you left off.
+              </p>
+              <div className="grid gap-3">
+                {unfinishedSessions.map((session) => (
+                  <div
+                    key={session.id}
+                    className="flex items-center justify-between p-4 bg-warning-50 dark:bg-warning-50/10 rounded-lg"
+                  >
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <Chip
+                          size="sm"
+                          variant="flat"
+                          color={session.mode === "assessed" ? "primary" : "default"}
+                        >
+                          {session.mode === "assessed" ? `Attempt #${session.attemptNumber}` : "Explore"}
+                        </Chip>
+                        <span className="text-xs text-default-400">
+                          {session.totalMessages} messages
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2 mt-1">
+                        <Clock className="w-3 h-3 text-default-400" />
+                        <span className="text-xs text-default-500">
+                          Started {new Date(session.startedAt).toLocaleString()}
+                        </span>
+                      </div>
+                    </div>
+                    <Button
+                      color="warning"
+                      variant="flat"
+                      startContent={<RotateCcw className="w-4 h-4" />}
+                      onPress={() => handleResume(session)}
+                      isLoading={resuming}
+                    >
+                      Continue
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            </CardBody>
+          </Card>
+        )}
+
+        <div className="flex gap-4 justify-center pt-4">
+          <Button
+            size="lg"
+            variant="bordered"
+            startContent={<Eye className="w-5 h-5" />}
+            onPress={() => handleStart("explore")}
+          >
+            Explore System
+          </Button>
+          <Button
+            size="lg"
+            color="primary"
+            startContent={<Play className="w-5 h-5" />}
+            onPress={() => handleStart("assessed")}
+          >
+            Start
+          </Button>
+        </div>
+        <p className="text-center text-sm text-default-400">
+          &quot;Explore System&quot; lets you try the case without recording.
+          &quot;Start&quot; begins an assessed attempt.
+        </p>
+      </div>
+    );
+  }
+
+  // PLAYING PAGE
+  const currentRoleMessages = selectedRole ? (chatMessages[selectedRole.id] || []) : [];
+
+  return (
+    <div className="flex h-[calc(100vh-80px)] gap-4">
+      {/* Left sidebar - Roles */}
+      <div className="w-64 shrink-0 flex flex-col gap-3">
+        <div className="flex items-center justify-between">
+          <h3 className="font-semibold text-sm">Roles</h3>
+          <Chip size="sm" variant="flat" color={mode === "assessed" ? "primary" : "default"}>
+            {mode === "assessed" ? "Assessed" : "Explore"}
+          </Chip>
+        </div>
+
+        <div className="flex flex-col gap-2 flex-1 overflow-y-auto">
+          {caseData.avatars?.map((avatar) => {
+            const msgCount = (chatMessages[avatar.id] || []).length;
+            const isSelected = selectedRole?.id === avatar.id;
+            return (
+              <Card
+                key={avatar.id}
+                isPressable
+                className={`transition-all ${isSelected ? "border-2 border-primary bg-primary/5" : "hover:bg-default-50"}`}
+                onPress={() => handleSelectRole(avatar)}
+              >
+                <CardBody className="p-3">
+                  <p className="font-medium text-sm">{avatar.name}</p>
+                  <p className="text-xs text-default-500 line-clamp-1">{avatar.role}</p>
+                  {msgCount > 0 && (
+                    <div className="flex items-center gap-1 mt-1">
+                      <MessageSquare className="w-3 h-3 text-default-400" />
+                      <span className="text-xs text-default-400">{msgCount} messages</span>
+                    </div>
+                  )}
+                </CardBody>
+              </Card>
+            );
+          })}
+        </div>
+
+        <Button
+          color="danger"
+          variant="flat"
+          startContent={<CheckCircle className="w-4 h-4" />}
+          onPress={() => setShowFinishModal(true)}
+          isLoading={finishing}
+          className="w-full"
+        >
+          I&apos;m Finished
+        </Button>
+      </div>
+
+      {/* Main chat area */}
+      <div className="flex-1 flex flex-col border rounded-lg overflow-hidden">
+        {!selectedRole ? (
+          <div className="flex-1 flex items-center justify-center text-default-400">
+            <div className="text-center">
+              <Users className="w-12 h-12 mx-auto mb-4 opacity-50" />
+              <p className="text-lg">Select a person to talk to</p>
+              <p className="text-sm">Choose from the roles on the left</p>
+            </div>
+          </div>
+        ) : (
+          <>
+            {/* Chat header */}
+            <div className="p-4 border-b bg-default-50 flex items-center justify-between">
+              <div>
+                <p className="font-semibold">{selectedRole.name}</p>
+                <p className="text-sm text-default-500">{selectedRole.role}</p>
+              </div>
+              <div className="flex items-center gap-2">
+                {/* Interaction mode switch */}
+                {roleHasAvatarProfile && (
+                  <div className="flex gap-1">
+                    <Button
+                      size="sm"
+                      variant="flat"
+                      color={interactionMode === "text" ? "primary" : "default"}
+                      onPress={() => handleSwitchInteractionMode("text")}
+                      startContent={<Type className="w-3 h-3" />}
+                    >
+                      Text
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="flat"
+                      color={interactionMode === "avatar" ? "primary" : "default"}
+                      onPress={() => handleSwitchInteractionMode("avatar")}
+                      startContent={<Video className="w-3 h-3" />}
+                    >
+                      Avatar
+                    </Button>
+                  </div>
+                )}
+                <Button
+                  size="sm"
+                  variant="light"
+                  startContent={<LogOut className="w-4 h-4" />}
+                  onPress={() => {
+                    if (interactionLog && selectedRole) {
+                      const now = Date.now();
+                      interactionLog.events.push({
+                        type: "exit_role",
+                        roleId: selectedRole.id,
+                        roleName: selectedRole.name,
+                        timestamp: now,
+                      });
+                      if (interactionLog.roleInteractions[selectedRole.id]) {
+                        interactionLog.roleInteractions[selectedRole.id].exitedAt = now;
+                      }
+                      setInteractionLog({ ...interactionLog });
+                    }
+                    // Stop avatar session when leaving role
+                    if (interactionMode === "avatar") {
+                      avatarRef.current?.stopSession();
+                    }
+                    setSelectedRole(null);
+                  }}
+                >
+                  Leave
+                </Button>
+              </div>
+            </div>
+
+            {/* Avatar video area - shown only in avatar mode */}
+            {interactionMode === "avatar" && (
+              <div className="border-b">
+                {avatarConfigLoading ? (
+                  <div className="flex items-center justify-center py-12">
+                    <Spinner size="lg" label="Loading avatar profile..." />
+                  </div>
+                ) : (
+                  <div className="max-h-[300px] overflow-hidden">
+                    <InteractiveAvatarWrapper
+                      ref={avatarRef}
+                      config={avatarConfig ?? undefined}
+                      showHistory={false}
+                      autoStart={true}
+                    />
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Messages - always visible regardless of mode */}
+            <div className="flex-1 overflow-y-auto p-4 space-y-4">
+              {currentRoleMessages.length === 0 && (
+                <div className="text-center text-default-400 py-8">
+                  <p>Start a conversation with {selectedRole.name}</p>
+                </div>
+              )}
+              {currentRoleMessages.map((msg, idx) => (
+                <div
+                  key={idx}
+                  className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
+                >
+                  <div
+                    className={`max-w-[80%] p-3 rounded-lg ${
+                      msg.role === "user"
+                        ? "bg-primary text-primary-foreground"
+                        : "bg-default-100"
+                    }`}
+                  >
+                    <p className="text-sm whitespace-pre-wrap">{msg.content}</p>
+                    <p className={`text-xs mt-1 ${msg.role === "user" ? "text-primary-foreground/60" : "text-default-400"}`}>
+                      {new Date(msg.timestamp).toLocaleTimeString()}
+                    </p>
+                  </div>
+                </div>
+              ))}
+              {sending && (
+                <div className="flex justify-start">
+                  <div className="bg-default-100 p-3 rounded-lg">
+                    <Spinner size="sm" />
+                  </div>
+                </div>
+              )}
+              <div ref={chatEndRef} />
+            </div>
+
+            {/* Input area - changes based on interaction mode */}
+            <div className="p-4 border-t">
+              {interactionMode === "text" ? (
+                /* Text input mode */
+                <div className="flex gap-2">
+                  <Input
+                    placeholder={`Message ${selectedRole.name}...`}
+                    value={currentInput}
+                    onValueChange={setCurrentInput}
+                    onKeyDown={handleKeyDown}
+                    isDisabled={sending}
+                    className="flex-1"
+                  />
+                  <Button
+                    isIconOnly
+                    color="primary"
+                    onPress={handleSendMessage}
+                    isLoading={sending}
+                    isDisabled={!currentInput.trim()}
+                  >
+                    <Send className="w-4 h-4" />
+                  </Button>
+                </div>
+              ) : (
+                /* Avatar push-to-talk mode */
+                <div className="flex flex-col items-center gap-2">
+                  <div className="flex items-center gap-3">
+                    <Button
+                      size="lg"
+                      color={isRecording ? "danger" : "primary"}
+                      className={`rounded-full w-16 h-16 transition-all ${isRecording ? "scale-110" : ""}`}
+                      isIconOnly
+                      isDisabled={sending || isTranscribing}
+                      onMouseDown={handlePushToTalkDown}
+                      onMouseUp={handlePushToTalkUp}
+                      onMouseLeave={handlePushToTalkUp}
+                      onTouchStart={(e: React.TouchEvent) => {
+                        e.preventDefault();
+                        handlePushToTalkDown();
+                      }}
+                      onTouchEnd={(e: React.TouchEvent) => {
+                        e.preventDefault();
+                        handlePushToTalkUp();
+                      }}
+                    >
+                      {isRecording ? (
+                        <MicOff className="w-6 h-6" />
+                      ) : isTranscribing ? (
+                        <Spinner size="sm" color="white" />
+                      ) : (
+                        <Mic className="w-6 h-6" />
+                      )}
+                    </Button>
+                  </div>
+                  <p className="text-xs text-default-400">
+                    {isRecording
+                      ? "Release to send"
+                      : isTranscribing
+                        ? "Transcribing..."
+                        : sending
+                          ? "Getting response..."
+                          : "Hold to talk"}
+                  </p>
+                  {/* Also allow text input in avatar mode */}
+                  <div className="flex gap-2 w-full mt-2">
+                    <Input
+                      placeholder={`Or type a message...`}
+                      value={currentInput}
+                      onValueChange={setCurrentInput}
+                      onKeyDown={handleKeyDown}
+                      isDisabled={sending || isRecording || isTranscribing}
+                      size="sm"
+                      className="flex-1"
+                    />
+                    <Button
+                      isIconOnly
+                      color="primary"
+                      size="sm"
+                      onPress={handleSendMessage}
+                      isLoading={sending}
+                      isDisabled={!currentInput.trim() || isRecording || isTranscribing}
+                    >
+                      <Send className="w-3 h-3" />
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </>
+        )}
+      </div>
+
+      {/* Finish confirmation modal */}
+      <Modal isOpen={showFinishModal} onClose={() => setShowFinishModal(false)} size="sm">
+        <ModalContent>
+          <ModalHeader>End This Session?</ModalHeader>
+          <ModalBody>
+            <p className="text-default-600">
+              Are you sure you&apos;re finished with the entire case? Once you submit,
+              you won&apos;t be able to continue this conversation or make any changes.
+              {mode === "assessed" && (
+                <span className="block mt-2 font-medium text-warning-600">
+                  This is an assessed attempt — your responses will be evaluated.
+                </span>
+              )}
+            </p>
+          </ModalBody>
+          <ModalFooter>
+            <Button variant="light" onPress={() => setShowFinishModal(false)}>
+              Keep Going
+            </Button>
+            <Button
+              color="danger"
+              onPress={() => {
+                setShowFinishModal(false);
+                handleFinish();
+              }}
+              isLoading={finishing}
+            >
+              Yes, I&apos;m Finished
+            </Button>
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
+    </div>
+  );
+}

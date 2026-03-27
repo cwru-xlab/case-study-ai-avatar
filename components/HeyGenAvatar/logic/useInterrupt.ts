@@ -1,14 +1,13 @@
 import { useCallback } from "react";
-
 import { useStreamingAvatarContext } from "./context";
 
 export const useInterrupt = () => {
-  const { avatarRef } = useStreamingAvatarContext();
+  const { sessionRef } = useStreamingAvatarContext();
 
   const interrupt = useCallback(() => {
-    if (!avatarRef.current) return;
-    avatarRef.current.interrupt();
-  }, [avatarRef]);
+    if (!sessionRef.current) return;
+    sessionRef.current.interrupt();
+  }, [sessionRef]);
 
   return { interrupt };
 };

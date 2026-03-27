@@ -66,6 +66,10 @@ const PUBLIC_ROUTES = [
   "/api/cta/validate-session", // Session validation for CTA forms
   "/api/cta/submit", // Form submission from mobile users
   "/cta/form", // CTA form page for mobile users
+  // Cohort join endpoints (public so students can join without login)
+  "/join", // Join cohort page
+  "/api/cohort/join", // Join cohort API
+  "/api/cohort/get", // Get cohort info (needed for join page)
 ];
 
 /**
@@ -106,6 +110,7 @@ const PUBLIC_ROUTES = [
  */
 const ADMIN_ROUTES = [
   "/system-settings",
+  "/case-management",
   "/avatar-management",
   "/users-and-usages",
   "/kiosk/main-display",
@@ -137,6 +142,31 @@ const ADMIN_ROUTES = [
   "/api/cta/generate-qr", // QR code generation for kiosk
   "/cta-management", // CTA admin portal section
   "/api/audio/transcribe",
+  // Profile management API endpoints
+  "/api/profile/add",
+  "/api/profile/edit",
+  "/api/profile/delete",
+  "/api/profile/get",
+  "/api/profile/list",
+  "/avatar-profiles",
+  // Case management API endpoints
+  "/api/case/add",
+  "/api/case/edit",
+  "/api/case/delete",
+  // Student History routes
+  "/student-history",
+  // Cohort management
+  "/cohort-management",
+  "/api/cohort/add",
+  "/api/cohort/edit",
+  "/api/cohort/delete",
+  "/api/cohort/list",
+  "/api/cohort/send-invitations",
+  // Codes management (admin views)
+  "/codes",
+  "/api/codes",
+  // Teacher Class Overview routes
+  "/teacher",
 ];
 
 /**
@@ -165,6 +195,13 @@ const KIOSK_ROUTES: string[] = [
   "/api/chat/save-kiosk", // Kiosk will also have a logged in user, so this endpoint do not need to be public
   "/api/cta/generate-qr", // QR code generation for kiosk
   "/api/audio/transcribe",
+];
+
+const STUDENT_ROUTES: string[] = [
+  "/student-cases",
+  "/api/student/cases",
+  "/case-play",
+  "/api/interaction",
 ];
 
 /**
@@ -256,6 +293,32 @@ export async function middleware(request: NextRequest) {
 
     // Extract user role from JWT payload
     const userRole = payload.role as string;
+
+    /**
+     * STUDENT ROUTE AUTHORIZATION
+     *
+     * For student-specific routes, allows student and admin users.
+     */
+    const isStudentRoute = STUDENT_ROUTES.some((route) =>
+      pathname.startsWith(route)
+    );
+
+    if (isStudentRoute) {
+      if (userRole !== "student" && userRole !== "admin") {
+        if (pathname.startsWith("/api/")) {
+          return NextResponse.json(
+            { error: "Access denied: student or admin role required" },
+            { status: 403 }
+          );
+        } else {
+          return NextResponse.redirect(
+            new URL("/?error=access_denied", request.url)
+          );
+        }
+      } else {
+        return NextResponse.next();
+      }
+    }
 
     /**
      * KIOSK ROUTE AUTHORIZATION

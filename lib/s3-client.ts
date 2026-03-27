@@ -27,7 +27,8 @@ import {
 import { gzip, gunzip } from "zlib";
 import { promisify } from "util";
 import type { Avatar, VersionManifest, AvatarVersion } from "./avatar-storage";
-import type { ChatSession, ChatMessage, ChatSessionMetadata } from "@/types";
+import type { ChatSession, ChatMessage, ChatSessionMetadata, VideoAudioProfile, CaseStudy, InteractionLog } from "@/types";
+import type { Cohort } from "@/types/cohort";
 
 // S3 client configuration - shared between avatar and chat storage
 const s3Client = new S3Client({
@@ -48,6 +49,22 @@ export const METADATA_SUFFIX = "metadata.json"; // Existing metadata file suffix
 
 // Index file for chat session metadata
 const CHAT_INDEX_FILE = `${CHATS_PREFIX}index.json`;
+
+// Profile storage prefix and index
+const PROFILES_PREFIX = "profiles/";
+const PROFILE_INDEX_FILE = `${PROFILES_PREFIX}index.json`;
+
+// Case storage prefix and index
+const CASES_PREFIX = "cases/";
+const CASE_INDEX_FILE = `${CASES_PREFIX}index.json`;
+
+// Cohort storage prefix and index
+const COHORTS_PREFIX = "cohorts/";
+const COHORT_INDEX_FILE = `${COHORTS_PREFIX}index.json`;
+
+// Interaction log storage prefix
+// Structure: interactions/{studentEmail}/{caseId}/{logId}.json
+const INTERACTIONS_PREFIX = "interactions/";
 
 // Global compression switch for chat sessions
 const ENABLE_CHAT_COMPRESSION =
@@ -732,6 +749,306 @@ export class S3AvatarStorage {
 
   /**
    * ==================================================================================
+   * VIDEO/AUDIO PROFILE STORAGE METHODS
+   * ==================================================================================
+   *
+   * Storage Structure:
+   * profiles/{profileId}.json - Individual JSON files for each profile
+   * profiles/index.json - Index of all profile metadata for fast listing
+   */
+
+  async saveProfile(profile: VideoAudioProfile): Promise<void> {
+    const key = `${PROFILES_PREFIX}${profile.id}.json`;
+
+    const command = new PutObjectCommand({
+      Bucket: BUCKET_NAME,
+      Key: key,
+      Body: JSON.stringify(profile, null, 2),
+      ContentType: "application/json",
+    });
+    await s3Client.send(command);
+
+    let index = await this.readProfileIndex();
+    index = index.filter((p) => p.id !== profile.id);
+    index.push({
+      id: profile.id,
+      name: profile.name,
+      quality: profile.quality,
+      avatarName: profile.avatarName,
+      language: profile.language,
+      lastEditedAt: profile.lastEditedAt,
+    });
+    index.sort(
+      (a, b) =>
+        new Date(b.lastEditedAt).getTime() - new Date(a.lastEditedAt).getTime()
+    );
+    await this.writeProfileIndex(index);
+  }
+
+  async getProfile(id: string): Promise<VideoAudioProfile | null> {
+    try {
+      const command = new GetObjectCommand({
+        Bucket: BUCKET_NAME,
+        Key: `${PROFILES_PREFIX}${id}.json`,
+      });
+
+      const response = await s3Client.send(command);
+      if (!response.Body) return null;
+
+      const content = await response.Body.transformToString();
+      return JSON.parse(content);
+    } catch (error: any) {
+      if (
+        error.name === "NoSuchKey" ||
+        error.$metadata?.httpStatusCode === 404
+      ) {
+        return null;
+      }
+      console.error(`Failed to get profile ${id}:`, error);
+      return null;
+    }
+  }
+
+  async listProfiles(): Promise<VideoAudioProfile[]> {
+    try {
+      const index = await this.readProfileIndex();
+      const profiles: VideoAudioProfile[] = [];
+
+      for (const entry of index) {
+        const profile = await this.getProfile(entry.id);
+        if (profile) profiles.push(profile);
+      }
+
+      return profiles;
+    } catch (error) {
+      console.error("Failed to list profiles:", error);
+      return [];
+    }
+  }
+
+  async deleteProfile(id: string): Promise<void> {
+    const command = new DeleteObjectCommand({
+      Bucket: BUCKET_NAME,
+      Key: `${PROFILES_PREFIX}${id}.json`,
+    });
+    await s3Client.send(command);
+
+    let index = await this.readProfileIndex();
+    index = index.filter((p) => p.id !== id);
+    await this.writeProfileIndex(index);
+  }
+
+  async profileExists(id: string): Promise<boolean> {
+    try {
+      const command = new HeadObjectCommand({
+        Bucket: BUCKET_NAME,
+        Key: `${PROFILES_PREFIX}${id}.json`,
+      });
+      await s3Client.send(command);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  private async readProfileIndex(): Promise<
+    Array<{
+      id: string;
+      name: string;
+      quality: string;
+      avatarName: string;
+      language: string;
+      lastEditedAt: string;
+    }>
+  > {
+    try {
+      const command = new GetObjectCommand({
+        Bucket: BUCKET_NAME,
+        Key: PROFILE_INDEX_FILE,
+      });
+      const response = await s3Client.send(command);
+      if (!response.Body) return [];
+      const content = await response.Body.transformToString();
+      return JSON.parse(content);
+    } catch (error: any) {
+      if (
+        error.name === "NoSuchKey" ||
+        error.$metadata?.httpStatusCode === 404
+      ) {
+        return [];
+      }
+      throw error;
+    }
+  }
+
+  private async writeProfileIndex(
+    index: Array<{
+      id: string;
+      name: string;
+      quality: string;
+      avatarName: string;
+      language: string;
+      lastEditedAt: string;
+    }>
+  ): Promise<void> {
+    const command = new PutObjectCommand({
+      Bucket: BUCKET_NAME,
+      Key: PROFILE_INDEX_FILE,
+      Body: JSON.stringify(index, null, 2),
+      ContentType: "application/json",
+    });
+    await s3Client.send(command);
+  }
+
+  /**
+   * ==================================================================================
+   * CASE STUDY STORAGE METHODS
+   * ==================================================================================
+   *
+   * Storage Structure:
+   * cases/{caseId}.json - Individual JSON files for each case
+   * cases/index.json - Index of all case metadata for fast listing
+   */
+
+  async saveCase(caseStudy: CaseStudy): Promise<void> {
+    const key = `${CASES_PREFIX}${caseStudy.id}.json`;
+
+    const command = new PutObjectCommand({
+      Bucket: BUCKET_NAME,
+      Key: key,
+      Body: JSON.stringify(caseStudy, null, 2),
+      ContentType: "application/json",
+    });
+    await s3Client.send(command);
+
+    let index = await this.readCaseIndex();
+    index = index.filter((c) => c.id !== caseStudy.id);
+    index.push({
+      id: caseStudy.id,
+      name: caseStudy.name,
+      avatarCount: caseStudy.avatars.length,
+      lastEditedAt: caseStudy.lastEditedAt,
+    });
+    index.sort(
+      (a, b) =>
+        new Date(b.lastEditedAt).getTime() - new Date(a.lastEditedAt).getTime()
+    );
+    await this.writeCaseIndex(index);
+  }
+
+  async getCase(id: string): Promise<CaseStudy | null> {
+    try {
+      const command = new GetObjectCommand({
+        Bucket: BUCKET_NAME,
+        Key: `${CASES_PREFIX}${id}.json`,
+      });
+
+      const response = await s3Client.send(command);
+      if (!response.Body) return null;
+
+      const content = await response.Body.transformToString();
+      return JSON.parse(content);
+    } catch (error: any) {
+      if (
+        error.name === "NoSuchKey" ||
+        error.$metadata?.httpStatusCode === 404
+      ) {
+        return null;
+      }
+      console.error(`Failed to get case ${id}:`, error);
+      return null;
+    }
+  }
+
+  async listCases(): Promise<CaseStudy[]> {
+    try {
+      const index = await this.readCaseIndex();
+      const cases: CaseStudy[] = [];
+
+      for (const entry of index) {
+        const caseStudy = await this.getCase(entry.id);
+        if (caseStudy) cases.push(caseStudy);
+      }
+
+      return cases;
+    } catch (error) {
+      console.error("Failed to list cases:", error);
+      return [];
+    }
+  }
+
+  async deleteCase(id: string): Promise<void> {
+    const command = new DeleteObjectCommand({
+      Bucket: BUCKET_NAME,
+      Key: `${CASES_PREFIX}${id}.json`,
+    });
+    await s3Client.send(command);
+
+    let index = await this.readCaseIndex();
+    index = index.filter((c) => c.id !== id);
+    await this.writeCaseIndex(index);
+  }
+
+  async caseExists(id: string): Promise<boolean> {
+    try {
+      const command = new HeadObjectCommand({
+        Bucket: BUCKET_NAME,
+        Key: `${CASES_PREFIX}${id}.json`,
+      });
+      await s3Client.send(command);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  private async readCaseIndex(): Promise<
+    Array<{
+      id: string;
+      name: string;
+      avatarCount: number;
+      lastEditedAt: string;
+    }>
+  > {
+    try {
+      const command = new GetObjectCommand({
+        Bucket: BUCKET_NAME,
+        Key: CASE_INDEX_FILE,
+      });
+      const response = await s3Client.send(command);
+      if (!response.Body) return [];
+      const content = await response.Body.transformToString();
+      return JSON.parse(content);
+    } catch (error: any) {
+      if (
+        error.name === "NoSuchKey" ||
+        error.$metadata?.httpStatusCode === 404
+      ) {
+        return [];
+      }
+      throw error;
+    }
+  }
+
+  private async writeCaseIndex(
+    index: Array<{
+      id: string;
+      name: string;
+      avatarCount: number;
+      lastEditedAt: string;
+    }>
+  ): Promise<void> {
+    const command = new PutObjectCommand({
+      Bucket: BUCKET_NAME,
+      Key: CASE_INDEX_FILE,
+      Body: JSON.stringify(index, null, 2),
+      ContentType: "application/json",
+    });
+    await s3Client.send(command);
+  }
+
+  /**
+   * ==================================================================================
    * EXISTING KNOWLEDGE BASE METHODS
    * ==================================================================================
    *
@@ -893,6 +1210,279 @@ export class S3AvatarStorage {
     }
     
     return null; // No image found
+  }
+
+  /**
+   * ==================================================================================
+   * COHORT STORAGE METHODS
+   * ==================================================================================
+   */
+
+  async saveCohort(cohort: Cohort): Promise<void> {
+    const key = `${COHORTS_PREFIX}${cohort.id}.json`;
+    const command = new PutObjectCommand({
+      Bucket: BUCKET_NAME,
+      Key: key,
+      Body: JSON.stringify(cohort, null, 2),
+      ContentType: "application/json",
+    });
+    await s3Client.send(command);
+
+    const index = await this.readCohortIndex();
+    const existingIdx = index.findIndex((c) => c.id === cohort.id);
+    const indexEntry = {
+      id: cohort.id,
+      name: cohort.name,
+      accessCode: cohort.accessCode,
+      studentCount: cohort.students?.length || 0,
+      isActive: cohort.isActive,
+      updatedAt: cohort.updatedAt,
+    };
+
+    if (existingIdx >= 0) {
+      index[existingIdx] = indexEntry;
+    } else {
+      index.push(indexEntry);
+    }
+    await this.writeCohortIndex(index);
+  }
+
+  async getCohort(id: string): Promise<Cohort | null> {
+    try {
+      const key = `${COHORTS_PREFIX}${id}.json`;
+      const command = new GetObjectCommand({
+        Bucket: BUCKET_NAME,
+        Key: key,
+      });
+      const response = await s3Client.send(command);
+      if (!response.Body) return null;
+      const content = await response.Body.transformToString();
+      return JSON.parse(content) as Cohort;
+    } catch (error: any) {
+      if (error.name === "NoSuchKey" || error.$metadata?.httpStatusCode === 404) {
+        return null;
+      }
+      throw error;
+    }
+  }
+
+  async getCohortByAccessCode(accessCode: string): Promise<Cohort | null> {
+    const index = await this.readCohortIndex();
+    const entry = index.find((c) => c.accessCode === accessCode);
+    if (!entry) return null;
+    return this.getCohort(entry.id);
+  }
+
+  async deleteCohort(id: string): Promise<void> {
+    const key = `${COHORTS_PREFIX}${id}.json`;
+    const command = new DeleteObjectCommand({
+      Bucket: BUCKET_NAME,
+      Key: key,
+    });
+    await s3Client.send(command);
+
+    const index = await this.readCohortIndex();
+    const filtered = index.filter((c) => c.id !== id);
+    await this.writeCohortIndex(filtered);
+  }
+
+  async listCohorts(professorId?: string): Promise<Cohort[]> {
+    const index = await this.readCohortIndex();
+    const cohorts: Cohort[] = [];
+
+    for (const entry of index) {
+      const cohort = await this.getCohort(entry.id);
+      if (cohort) {
+        if (!professorId || cohort.professorId === professorId) {
+          cohorts.push(cohort);
+        }
+      }
+    }
+
+    return cohorts.sort(
+      (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
+    );
+  }
+
+  private async readCohortIndex(): Promise<
+    Array<{
+      id: string;
+      name: string;
+      accessCode: string;
+      studentCount: number;
+      isActive: boolean;
+      updatedAt: string;
+    }>
+  > {
+    try {
+      const command = new GetObjectCommand({
+        Bucket: BUCKET_NAME,
+        Key: COHORT_INDEX_FILE,
+      });
+      const response = await s3Client.send(command);
+      if (!response.Body) return [];
+      const content = await response.Body.transformToString();
+      return JSON.parse(content);
+    } catch (error: any) {
+      if (error.name === "NoSuchKey" || error.$metadata?.httpStatusCode === 404) {
+        return [];
+      }
+      throw error;
+    }
+  }
+
+  private async writeCohortIndex(
+    index: Array<{
+      id: string;
+      name: string;
+      accessCode: string;
+      studentCount: number;
+      isActive: boolean;
+      updatedAt: string;
+    }>
+  ): Promise<void> {
+    const command = new PutObjectCommand({
+      Bucket: BUCKET_NAME,
+      Key: COHORT_INDEX_FILE,
+      Body: JSON.stringify(index, null, 2),
+      ContentType: "application/json",
+    });
+    await s3Client.send(command);
+  }
+
+  /**
+   * ==================================================================================
+   * INTERACTION LOG STORAGE METHODS
+   * ==================================================================================
+   *
+   * Storage Structure:
+   * interactions/{studentEmail}/{caseId}/{logId}.json
+   * interactions/{studentEmail}/{caseId}/index.json - list of logs for quick lookup
+   */
+
+  private getInteractionKey(studentEmail: string, caseId: string, logId: string): string {
+    const safeEmail = studentEmail.toLowerCase().replace(/[^a-z0-9@._-]/g, "_");
+    return `${INTERACTIONS_PREFIX}${safeEmail}/${caseId}/${logId}.json`;
+  }
+
+  private getInteractionIndexKey(studentEmail: string, caseId: string): string {
+    const safeEmail = studentEmail.toLowerCase().replace(/[^a-z0-9@._-]/g, "_");
+    return `${INTERACTIONS_PREFIX}${safeEmail}/${caseId}/index.json`;
+  }
+
+  async saveInteractionLog(log: InteractionLog): Promise<void> {
+    const key = this.getInteractionKey(log.studentEmail, log.caseId, log.id);
+    const command = new PutObjectCommand({
+      Bucket: BUCKET_NAME,
+      Key: key,
+      Body: JSON.stringify(log, null, 2),
+      ContentType: "application/json",
+    });
+    await s3Client.send(command);
+
+    // Update the index
+    const indexKey = this.getInteractionIndexKey(log.studentEmail, log.caseId);
+    let index = await this.readInteractionIndex(log.studentEmail, log.caseId);
+    index = index.filter((entry) => entry.id !== log.id);
+    index.push({
+      id: log.id,
+      attemptNumber: log.attemptNumber,
+      mode: log.mode,
+      status: log.status,
+      startedAt: log.startedAt,
+      completedAt: log.completedAt,
+      totalMessages: log.totalMessages,
+      totalTimeSeconds: log.totalTimeSeconds,
+      evalScore: log.evalScore,
+      updatedAt: log.updatedAt,
+    });
+    index.sort((a, b) => b.startedAt - a.startedAt);
+
+    const indexCommand = new PutObjectCommand({
+      Bucket: BUCKET_NAME,
+      Key: indexKey,
+      Body: JSON.stringify(index, null, 2),
+      ContentType: "application/json",
+    });
+    await s3Client.send(indexCommand);
+  }
+
+  async getInteractionLog(studentEmail: string, caseId: string, logId: string): Promise<InteractionLog | null> {
+    try {
+      const key = this.getInteractionKey(studentEmail, caseId, logId);
+      const command = new GetObjectCommand({
+        Bucket: BUCKET_NAME,
+        Key: key,
+      });
+      const response = await s3Client.send(command);
+      if (!response.Body) return null;
+      const content = await response.Body.transformToString();
+      return JSON.parse(content) as InteractionLog;
+    } catch (error: any) {
+      if (error.name === "NoSuchKey" || error.$metadata?.httpStatusCode === 404) {
+        return null;
+      }
+      console.error(`Failed to get interaction log:`, error);
+      return null;
+    }
+  }
+
+  async listInteractionLogs(
+    studentEmail: string,
+    caseId: string
+  ): Promise<Array<{
+    id: string;
+    attemptNumber: number;
+    mode: string;
+    status: string;
+    startedAt: number;
+    completedAt?: number;
+    totalMessages: number;
+    totalTimeSeconds: number;
+    evalScore?: number;
+    updatedAt: string;
+  }>> {
+    return this.readInteractionIndex(studentEmail, caseId);
+  }
+
+  private async readInteractionIndex(
+    studentEmail: string,
+    caseId: string
+  ): Promise<Array<{
+    id: string;
+    attemptNumber: number;
+    mode: string;
+    status: string;
+    startedAt: number;
+    completedAt?: number;
+    totalMessages: number;
+    totalTimeSeconds: number;
+    evalScore?: number;
+    updatedAt: string;
+  }>> {
+    try {
+      const key = this.getInteractionIndexKey(studentEmail, caseId);
+      const command = new GetObjectCommand({
+        Bucket: BUCKET_NAME,
+        Key: key,
+      });
+      const response = await s3Client.send(command);
+      if (!response.Body) return [];
+      const content = await response.Body.transformToString();
+      return JSON.parse(content);
+    } catch (error: any) {
+      if (error.name === "NoSuchKey" || error.$metadata?.httpStatusCode === 404) {
+        return [];
+      }
+      throw error;
+    }
+  }
+
+  async getNextAttemptNumber(studentEmail: string, caseId: string): Promise<number> {
+    const logs = await this.listInteractionLogs(studentEmail, caseId);
+    const assessedLogs = logs.filter((l) => l.mode === "assessed");
+    if (assessedLogs.length === 0) return 1;
+    return Math.max(...assessedLogs.map((l) => l.attemptNumber)) + 1;
   }
 }
 

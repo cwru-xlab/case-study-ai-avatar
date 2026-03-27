@@ -1,8 +1,8 @@
 export type SiteConfig = typeof siteConfig;
 
 export const siteConfig = {
-  name: "CWRU WSOM AI Avatar",
-  description: "CWRU WSOM AI Avatar",
+  name: "AI Case Study",
+  description: "AI Case Study",
   navItems: [
     {
       label: "Home",
@@ -10,30 +10,33 @@ export const siteConfig = {
       icon: "Home",
     },
     {
-      label: "System Settings",
-      href: "/system-settings",
-      icon: "Settings",
+      label: "Case Management",
+      href: "/case-management",
+      icon: "Briefcase",
     },
+
     {
       label: "Avatar Management",
-      href: "/avatar-management",
-      icon: "Users",
+      href: "/avatar-profiles",
+      icon: "Video",
     },
     {
-      label: "Users and Usages",
-      href: "/users-and-usages",
-      icon: "ChartColumnBig",
+      label: "Cohort Management",
+      href: "/codes",
+      icon: "GraduationCap",
+    },
+  ],
+  studentNavItems: [
+    {
+      label: "My Cases",
+      href: "/student-cases",
+      icon: "Briefcase",
     },
     {
-      label: "CTA Management",
-      href: "/cta-management",
-      icon: "Mail",
+      label: "Settings",
+      href: "/student-cases/settings",
+      icon: "Settings",
     },
-    // {
-    //   label: "About",
-    //   href: "/about",
-    //   icon: "Info",
-    // },
   ],
   // JWT and Authentication Configuration
   auth: {

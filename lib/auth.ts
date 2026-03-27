@@ -2,6 +2,8 @@ import { SignJWT, jwtVerify } from "jose";
 import { siteConfig } from "@/config/site";
 import { get } from "@vercel/edge-config";
 import crypto from "crypto";
+import { prisma } from "./prisma";
+import { Role, AuthProvider } from "@prisma/client";
 
 // Secret key for JWT (in production, use environment variable)
 const JWT_SECRET = new TextEncoder().encode(process.env.JWT_SECRET);
@@ -100,39 +102,37 @@ export async function getCurrentUser(token: string): Promise<User | null> {
   }
 }
 
-// Mock user database (in production, replace with actual database)
-const MOCK_USERS = [
-  {
-    id: "1",
-    email: "admin@example.com",
-    password: "admin123", // In production, this should be hashed
-    name: "Admin User",
-    role: "admin",
-    authProvider: "email" as const,
-  },
-  {
-    id: "2",
-    email: "user@example.com",
-    password: "user123", // In production, this should be hashed
-    name: "Regular User",
-    role: "user",
-    authProvider: "email" as const,
-  },
-];
-
-// Store for CWRU SSO users (in production, use actual database)
-const CWRU_USERS: Array<User & { password?: string }> = [];
-
 /**
  * Hash a password using SHA-512
  */
-function hashPassword(password: string): string {
+export function hashPassword(password: string): string {
   return crypto.createHash("sha512").update(password).digest("hex");
 }
 
 /**
+ * Verify a password against a hash
+ */
+export function verifyPassword(password: string, hash: string): boolean {
+  return hashPassword(password) === hash;
+}
+
+/**
+ * Convert Prisma Role enum to string for JWT
+ */
+function roleToString(role: Role): string {
+  return role.toLowerCase();
+}
+
+/**
+ * Convert Prisma AuthProvider enum to string for JWT
+ */
+function authProviderToString(provider: AuthProvider): "email" | "cwru_sso" {
+  return provider === AuthProvider.CWRU_SSO ? "cwru_sso" : "email";
+}
+
+/**
  * Authenticate user credentials with email and password
- * (only allowed in development, except for kiosk mode in production)
+ * Now reads from database instead of mock users
  */
 export async function authenticateUser(
   email: string,
@@ -146,7 +146,7 @@ export async function authenticateUser(
 
       // Hash the input password and compare with stored hash
       const inputPasswordHash = hashPassword(password);
-      
+
       if (email === kioskModeUsername && inputPasswordHash === kioskModePasswordHash) {
         // Return kiosk user
         return {
@@ -160,27 +160,51 @@ export async function authenticateUser(
     } catch (error) {
       console.error("Error checking kiosk mode credentials:", error);
     }
+  }
 
-    // If not kiosk mode, don't allow email/password auth in production
-    return null;
-  } else if (process.env.NODE_ENV === "development") {
-    // In development, allow normal mock user authentication
-    const user = MOCK_USERS.find(
-      (u) => u.email === email && u.password === password
-    );
+  // Authenticate from database
+  try {
+    const dbUser = await prisma.user.findUnique({
+      where: { email },
+    });
 
-    if (!user) {
+    if (!dbUser) {
       return null;
     }
 
+    // Check if user is active
+    if (!dbUser.isActive) {
+      console.log(`User ${email} is deactivated`);
+      return null;
+    }
+
+    // Check if user has a password (SSO users don't)
+    if (!dbUser.passwordHash) {
+      console.log(`User ${email} has no password (SSO user)`);
+      return null;
+    }
+
+    // Verify password
+    if (!verifyPassword(password, dbUser.passwordHash)) {
+      return null;
+    }
+
+    // Update last login time
+    await prisma.user.update({
+      where: { id: dbUser.id },
+      data: { lastLoginAt: new Date() },
+    });
+
     return {
-      id: user.id,
-      email: user.email,
-      name: user.name,
-      role: user.role,
-      authProvider: user.authProvider,
+      id: dbUser.id,
+      email: dbUser.email,
+      name: dbUser.name || "",
+      role: roleToString(dbUser.role),
+      studentId: dbUser.studentNumber || undefined,
+      authProvider: authProviderToString(dbUser.authProvider),
     };
-  } else {
+  } catch (error) {
+    console.error("Database authentication error:", error);
     return null;
   }
 }
@@ -259,33 +283,147 @@ export async function validateCWRUTicket(
 }
 
 /**
- * Create or update CWRU SSO user
+ * Create or update CWRU SSO user in database
  */
 export async function createOrUpdateCWRUUser(
   userInfo: CWRUUserInfo,
-  role: string = "user"
+  role: string = "student"
 ): Promise<User> {
-  // Check if user already exists
-  let existingUser = CWRU_USERS.find((u) => u.studentId === userInfo.studentId);
+  // Convert role string to enum
+  const roleEnum = role.toUpperCase() as keyof typeof Role;
+  const prismaRole = Role[roleEnum] || Role.STUDENT;
 
-  if (existingUser) {
-    // Update existing user
-    existingUser.email = userInfo.mail;
-    existingUser.name = `${userInfo.givenName} ${userInfo.sn}`;
-    existingUser.role = role; // Update role based on admin check
-    return existingUser;
-  }
+  // Upsert user in database
+  const dbUser = await prisma.user.upsert({
+    where: { email: userInfo.mail },
+    update: {
+      name: `${userInfo.givenName} ${userInfo.sn}`,
+      studentNumber: userInfo.studentId,
+      lastLoginAt: new Date(),
+    },
+    create: {
+      email: userInfo.mail,
+      name: `${userInfo.givenName} ${userInfo.sn}`,
+      role: prismaRole,
+      studentNumber: userInfo.studentId,
+      authProvider: AuthProvider.CWRU_SSO,
+      emailVerified: true, // SSO users are verified
+      lastLoginAt: new Date(),
+    },
+  });
 
-  // Create new user
-  const newUser: User = {
-    id: `cwru_${userInfo.studentId}`,
-    email: userInfo.mail,
-    name: `${userInfo.givenName} ${userInfo.sn}`,
-    role: role, // Use the provided role (admin or user)
-    studentId: userInfo.studentId,
+  return {
+    id: dbUser.id,
+    email: dbUser.email,
+    name: dbUser.name || "",
+    role: roleToString(dbUser.role),
+    studentId: dbUser.studentNumber || undefined,
     authProvider: "cwru_sso",
   };
+}
 
-  CWRU_USERS.push(newUser);
-  return newUser;
+/**
+ * Create a new user with email/password
+ */
+export async function createUser(
+  email: string,
+  password: string,
+  name: string,
+  role: Role = Role.STUDENT,
+  studentNumber?: string
+): Promise<User> {
+  const passwordHash = hashPassword(password);
+
+  const dbUser = await prisma.user.create({
+    data: {
+      email,
+      passwordHash,
+      name,
+      role,
+      studentNumber,
+      authProvider: AuthProvider.EMAIL,
+    },
+  });
+
+  return {
+    id: dbUser.id,
+    email: dbUser.email,
+    name: dbUser.name || "",
+    role: roleToString(dbUser.role),
+    studentId: dbUser.studentNumber || undefined,
+    authProvider: "email",
+  };
+}
+
+/**
+ * Get user by ID from database
+ */
+export async function getUserById(id: string): Promise<User | null> {
+  const dbUser = await prisma.user.findUnique({
+    where: { id },
+  });
+
+  if (!dbUser) {
+    return null;
+  }
+
+  return {
+    id: dbUser.id,
+    email: dbUser.email,
+    name: dbUser.name || "",
+    role: roleToString(dbUser.role),
+    studentId: dbUser.studentNumber || undefined,
+    authProvider: authProviderToString(dbUser.authProvider),
+  };
+}
+
+/**
+ * Get user by email from database
+ */
+export async function getUserByEmail(email: string): Promise<User | null> {
+  const dbUser = await prisma.user.findUnique({
+    where: { email },
+  });
+
+  if (!dbUser) {
+    return null;
+  }
+
+  return {
+    id: dbUser.id,
+    email: dbUser.email,
+    name: dbUser.name || "",
+    role: roleToString(dbUser.role),
+    studentId: dbUser.studentNumber || undefined,
+    authProvider: authProviderToString(dbUser.authProvider),
+  };
+}
+
+/**
+ * Log an audit event
+ */
+export async function logAuditEvent(
+  action: "LOGIN" | "LOGOUT" | "CREATE" | "UPDATE" | "DELETE" | "ATTEMPT_START" | "ATTEMPT_SUBMIT",
+  userId?: string,
+  entityType?: string,
+  entityId?: string,
+  metadata?: Record<string, unknown>,
+  ipAddress?: string,
+  userAgent?: string
+): Promise<void> {
+  try {
+    await prisma.auditLog.create({
+      data: {
+        userId,
+        action,
+        entityType,
+        entityId,
+        metadata: metadata ? JSON.stringify(metadata) : null,
+        ipAddress,
+        userAgent,
+      },
+    });
+  } catch (error) {
+    console.error("Failed to log audit event:", error);
+  }
 }

@@ -1,5 +1,5 @@
 import React, { forwardRef } from "react";
-import { ConnectionQuality } from "@heygen/streaming-avatar";
+import { ConnectionQuality } from "@heygen/liveavatar-web-sdk";
 
 import { useConnectionQuality } from "../logic/useConnectionQuality";
 import { useStreamingAvatarSession } from "../logic/useStreamingAvatarSession";

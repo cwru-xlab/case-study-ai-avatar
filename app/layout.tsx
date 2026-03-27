@@ -42,12 +42,14 @@ export default function RootLayout({
         )}
       >
         <Providers themeProps={{ attribute: "class", defaultTheme: "light" }}>
-          <div className="relative flex flex-col h-screen">
+          <div className="relative flex h-screen overflow-hidden">
             <AuthNavbar />
-            <main className="container mx-auto max-w-7xl pt-6 px-6 grow">
-              {children}
-            </main>
-            <footer className="w-full flex items-center justify-center py-3"></footer>
+            <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
+              <main className="flex-1 overflow-y-auto container mx-auto max-w-7xl pt-6 px-6">
+                {children}
+              </main>
+              <footer className="w-full flex items-center justify-center py-3 shrink-0"></footer>
+            </div>
           </div>
         </Providers>
       </body>

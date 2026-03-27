@@ -1,5 +1,7 @@
 "use client";
 
+import { useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { Snippet } from "@heroui/snippet";
 import { Code } from "@heroui/code";
 import { Button } from "@heroui/button";
@@ -10,6 +12,13 @@ import Avatar from "boring-avatars";
 
 export default function Home() {
   const { user, loading } = useAuth();
+  const router = useRouter();
+
+  useEffect(() => {
+    if (!loading && user?.role === "student") {
+      router.replace("/student-cases");
+    }
+  }, [user, loading, router]);
 
   const launchKioskMode = () => {
     // Open both kiosk pages in new windows
@@ -42,7 +51,7 @@ export default function Home() {
   return (
     <section className="flex flex-col items-center justify-center gap-4 py-8 md:py-10">
       <div className="text-center">
-        <h1 className={title()}>AI Avatar Kiosk</h1>
+        <h1 className={title()}>AI Case Study</h1>
         <p className={subtitle({ class: "mt-4" })}>
           Welcome to the authenticated area!
         </p>
