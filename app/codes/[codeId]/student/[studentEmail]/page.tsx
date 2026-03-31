@@ -470,37 +470,148 @@ function CaseDetailView({ data, studentEmail, codeId }: { data: CaseDetailData; 
             </CardBody>
           </Card>
 
-          {/* Full Conversation by Role */}
+          {/* Unified Interaction Log */}
           <Card className="md:col-span-2">
             <CardHeader>
-              <h3 className="font-semibold">Conversations by Role</h3>
+              <h3 className="font-semibold">Interaction Log</h3>
             </CardHeader>
-            <CardBody className="pt-0 space-y-4">
-              {Object.entries(selectedAttemptLog.roleInteractions || {}).map(([roleId, interaction]: [string, any]) => (
-                <div key={roleId} className="border rounded-lg overflow-hidden">
-                  <div className="p-3 bg-default-100 font-medium text-sm">
-                    {interaction.roleName} ({interaction.messages?.length || 0} messages)
-                  </div>
-                  <div className="p-3 space-y-2 max-h-64 overflow-y-auto">
-                    {interaction.messages?.map((msg: any, idx: number) => (
-                      <div key={idx} className={`text-sm ${msg.role === "user" ? "text-right" : "text-left"}`}>
-                        <span className={`inline-block p-2 rounded-lg max-w-[80%] ${
-                          msg.role === "user" ? "bg-primary/10" : "bg-default-50"
-                        }`}>
-                          <span className="text-xs text-default-400 block mb-1">
-                            {msg.role === "user" ? "Student" : interaction.roleName} - {new Date(msg.timestamp).toLocaleTimeString()}
-                          </span>
-                          {msg.content}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ))}
+            <CardBody className="pt-0">
+              <UnifiedChatView log={selectedAttemptLog} />
             </CardBody>
           </Card>
         </>
       )}
+    </div>
+  );
+}
+
+const ROLE_COLORS = [
+  "bg-blue-50 text-blue-900",
+  "bg-emerald-50 text-emerald-900",
+  "bg-violet-50 text-violet-900",
+  "bg-amber-50 text-amber-900",
+  "bg-rose-50 text-rose-900",
+];
+
+function buildUnifiedTimeline(log: any) {
+  type Item =
+    | { kind: "message"; role: "user" | "assistant"; content: string; roleName?: string; timestamp: number }
+    | { kind: "event"; label: string; timestamp: number };
+
+  const items: Item[] = [];
+
+  if (log.events && log.events.length > 0) {
+    for (const event of log.events) {
+      if (event.type === "send_message" || event.type === "receive_message") {
+        if (event.messageContent) {
+          items.push({
+            kind: "message",
+            role: event.messageRole || (event.type === "send_message" ? "user" : "assistant"),
+            content: event.messageContent,
+            roleName: event.roleName,
+            timestamp: event.timestamp,
+          });
+        }
+      } else {
+        let label = "";
+        switch (event.type) {
+          case "start_session": label = "Session started"; break;
+          case "end_session": label = "Session ended"; break;
+          case "enter_role": label = `Joined: ${event.roleName || event.roleId || "avatar"}`; break;
+          case "exit_role": label = `Left: ${event.roleName || event.roleId || "avatar"}`; break;
+          case "switch_interaction_mode": label = `Switched to ${event.interactionMode || "unknown"} mode`; break;
+          default: label = event.type.replace(/_/g, " ");
+        }
+        items.push({ kind: "event", label, timestamp: event.timestamp });
+      }
+    }
+  } else {
+    // Fallback: build from roleInteractions
+    for (const interaction of Object.values(log.roleInteractions || {}) as any[]) {
+      items.push({
+        kind: "event",
+        label: `Joined: ${interaction.roleName}`,
+        timestamp: interaction.enteredAt,
+      });
+      for (const msg of interaction.messages || []) {
+        items.push({
+          kind: "message",
+          role: msg.role,
+          content: msg.content,
+          roleName: interaction.roleName,
+          timestamp: msg.timestamp,
+        });
+      }
+      if (interaction.exitedAt) {
+        items.push({
+          kind: "event",
+          label: `Left: ${interaction.roleName}`,
+          timestamp: interaction.exitedAt,
+        });
+      }
+    }
+    items.sort((a, b) => a.timestamp - b.timestamp);
+  }
+
+  return items;
+}
+
+function UnifiedChatView({ log }: { log: any }) {
+  const timeline = buildUnifiedTimeline(log);
+  const roleColorMap = new Map<string, string>();
+
+  function getRoleColor(roleName?: string) {
+    if (!roleName) return ROLE_COLORS[0];
+    if (!roleColorMap.has(roleName)) {
+      roleColorMap.set(roleName, ROLE_COLORS[roleColorMap.size % ROLE_COLORS.length]);
+    }
+    return roleColorMap.get(roleName)!;
+  }
+
+  if (timeline.length === 0) {
+    return (
+      <div className="py-8 text-center text-default-400">
+        No messages recorded
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col max-h-[600px] overflow-y-auto px-2 py-1 space-y-1">
+      {timeline.map((item, idx) => {
+        if (item.kind === "event") {
+          return (
+            <div key={idx} className="flex items-center gap-3 my-2">
+              <div className="flex-1 h-px bg-default-200" />
+              <span className="text-xs text-default-400 whitespace-nowrap">
+                {item.label} · {new Date(item.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+              </span>
+              <div className="flex-1 h-px bg-default-200" />
+            </div>
+          );
+        }
+
+        const isUser = item.role === "user";
+        return (
+          <div key={idx} className={`flex flex-col ${isUser ? "items-end" : "items-start"} mb-1`}>
+            {!isUser && item.roleName && (
+              <span className="text-xs text-default-400 mb-0.5 ml-1">{item.roleName}</span>
+            )}
+            <div
+              className={`max-w-[70%] px-4 py-2.5 rounded-2xl text-sm leading-relaxed ${
+                isUser
+                  ? "bg-primary text-white rounded-tr-sm"
+                  : `${getRoleColor(item.roleName)} rounded-tl-sm`
+              }`}
+            >
+              {item.content}
+            </div>
+            <span className="text-xs text-default-300 mt-0.5 mx-1">
+              {new Date(item.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+            </span>
+          </div>
+        );
+      })}
     </div>
   );
 }

@@ -2,7 +2,6 @@
 
 import { useState, useEffect, use } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { title } from "@/components/primitives";
 import { Button } from "@heroui/button";
 import { Card, CardBody, CardHeader } from "@heroui/card";
 import { Chip } from "@heroui/chip";
@@ -33,6 +32,196 @@ import {
   type TimeRangeOption,
   TIME_RANGE_OPTIONS,
 } from "@/lib/student-history-service";
+import type { InteractionLog, InteractionEvent } from "@/types";
+
+// ─── Timeline helpers ─────────────────────────────────────────────────────────
+
+type TimelineMessage = {
+  kind: "message";
+  role: "user" | "assistant";
+  content: string;
+  roleName?: string;
+  timestamp: number;
+};
+
+type TimelineEvent = {
+  kind: "event";
+  type: string;
+  label: string;
+  timestamp: number;
+};
+
+type TimelineItem = TimelineMessage | TimelineEvent;
+
+function formatEventLabel(event: InteractionEvent): string {
+  switch (event.type) {
+    case "start_session":
+      return "Session started";
+    case "end_session":
+      return "Session ended";
+    case "enter_role":
+      return `Joined: ${event.roleName || event.roleId || "avatar"}`;
+    case "exit_role":
+      return `Left: ${event.roleName || event.roleId || "avatar"}`;
+    case "switch_interaction_mode":
+      return `Switched to ${event.interactionMode || "unknown"} mode`;
+    default:
+      return event.type.replace(/_/g, " ");
+  }
+}
+
+function buildTimeline(log: InteractionLog): TimelineItem[] {
+  const items: TimelineItem[] = [];
+
+  if (log.events && log.events.length > 0) {
+    for (const event of log.events) {
+      if (
+        event.type === "send_message" ||
+        event.type === "receive_message"
+      ) {
+        if (event.messageContent) {
+          items.push({
+            kind: "message",
+            role:
+              event.messageRole ||
+              (event.type === "send_message" ? "user" : "assistant"),
+            content: event.messageContent,
+            roleName: event.roleName,
+            timestamp: event.timestamp,
+          });
+        }
+      } else {
+        items.push({
+          kind: "event",
+          type: event.type,
+          label: formatEventLabel(event),
+          timestamp: event.timestamp,
+        });
+      }
+    }
+  } else {
+    // Fallback: build from roleInteractions
+    for (const interaction of Object.values(log.roleInteractions)) {
+      items.push({
+        kind: "event",
+        type: "enter_role",
+        label: `Joined: ${interaction.roleName}`,
+        timestamp: interaction.enteredAt,
+      });
+      for (const msg of interaction.messages) {
+        items.push({
+          kind: "message",
+          role: msg.role,
+          content: msg.content,
+          roleName: interaction.roleName,
+          timestamp: msg.timestamp,
+        });
+      }
+      if (interaction.exitedAt) {
+        items.push({
+          kind: "event",
+          type: "exit_role",
+          label: `Left: ${interaction.roleName}`,
+          timestamp: interaction.exitedAt,
+        });
+      }
+    }
+    items.sort((a, b) => a.timestamp - b.timestamp);
+  }
+
+  return items;
+}
+
+function formatTime(ts: number): string {
+  const d = new Date(ts);
+  return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
+// ─── Chat bubble components ───────────────────────────────────────────────────
+
+const ROLE_COLORS = [
+  "bg-blue-100 text-blue-900",
+  "bg-emerald-100 text-emerald-900",
+  "bg-violet-100 text-violet-900",
+  "bg-amber-100 text-amber-900",
+  "bg-rose-100 text-rose-900",
+];
+
+function getRoleColor(roleName: string | undefined, roleColorMap: Map<string, string>): string {
+  if (!roleName) return ROLE_COLORS[0];
+  if (!roleColorMap.has(roleName)) {
+    roleColorMap.set(roleName, ROLE_COLORS[roleColorMap.size % ROLE_COLORS.length]);
+  }
+  return roleColorMap.get(roleName)!;
+}
+
+function EventMarker({ label, timestamp }: { label: string; timestamp: number }) {
+  return (
+    <div className="flex items-center gap-3 my-3 px-2">
+      <div className="flex-1 h-px bg-default-200" />
+      <span className="text-xs text-default-400 whitespace-nowrap">
+        {label} · {formatTime(timestamp)}
+      </span>
+      <div className="flex-1 h-px bg-default-200" />
+    </div>
+  );
+}
+
+function ChatBubble({
+  item,
+  roleColorMap,
+}: {
+  item: TimelineMessage;
+  roleColorMap: Map<string, string>;
+}) {
+  const isUser = item.role === "user";
+  const colorClass = isUser
+    ? "bg-primary text-white"
+    : getRoleColor(item.roleName, roleColorMap);
+
+  return (
+    <div className={`flex flex-col ${isUser ? "items-end" : "items-start"} mb-2`}>
+      {!isUser && item.roleName && (
+        <span className="text-xs text-default-400 mb-1 ml-1">{item.roleName}</span>
+      )}
+      <div
+        className={`max-w-[70%] px-4 py-2.5 rounded-2xl text-sm leading-relaxed ${colorClass} ${
+          isUser ? "rounded-tr-sm" : "rounded-tl-sm"
+        }`}
+      >
+        {item.content}
+      </div>
+      <span className="text-xs text-default-300 mt-1 mx-1">{formatTime(item.timestamp)}</span>
+    </div>
+  );
+}
+
+function InteractionLogView({ log }: { log: InteractionLog }) {
+  const timeline = buildTimeline(log);
+  const roleColorMap = new Map<string, string>();
+
+  if (timeline.length === 0) {
+    return (
+      <div className="flex items-center justify-center py-12 text-default-400">
+        No messages recorded for this attempt
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col overflow-y-auto max-h-[65vh] px-2 py-1">
+      {timeline.map((item, idx) =>
+        item.kind === "event" ? (
+          <EventMarker key={idx} label={item.label} timestamp={item.timestamp} />
+        ) : (
+          <ChatBubble key={idx} item={item} roleColorMap={roleColorMap} />
+        )
+      )}
+    </div>
+  );
+}
+
+// ─── Data fetching ────────────────────────────────────────────────────────────
 
 async function fetchStudentHistoryDetail(
   sectionId: string,
@@ -62,6 +251,24 @@ async function fetchModuleDetails(
   if (!res.ok) throw new Error("Failed to fetch module details");
   return res.json();
 }
+
+async function fetchInteractionLog(
+  sectionId: string,
+  studentId: string,
+  caseId: string,
+  attemptNumber?: number
+): Promise<InteractionLog | null> {
+  const params = new URLSearchParams();
+  if (attemptNumber) params.set("attemptNumber", String(attemptNumber));
+  const res = await fetch(
+    `/api/student-history/interaction-log/${sectionId}/${studentId}/${caseId}?${params}`
+  );
+  if (!res.ok) return null;
+  const data = await res.json();
+  return data.log || null;
+}
+
+// ─── Page components ──────────────────────────────────────────────────────────
 
 interface PageProps {
   params: Promise<{
@@ -158,6 +365,8 @@ function MiniSparkline({ data }: { data: number[] }) {
   );
 }
 
+// ─── Main page ────────────────────────────────────────────────────────────────
+
 export default function StudentHistoryDetailPage({ params }: PageProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -173,6 +382,7 @@ export default function StudentHistoryDetailPage({ params }: PageProps) {
   const [selectedAttempt, setSelectedAttempt] = useState<number | null>(null);
   const [activeModal, setActiveModal] = useState<ModuleType | null>(null);
   const [modalData, setModalData] = useState<any>(null);
+  const [interactionLog, setInteractionLog] = useState<InteractionLog | null>(null);
   const [modalLoading, setModalLoading] = useState(false);
 
   useEffect(() => {
@@ -209,16 +419,27 @@ export default function StudentHistoryDetailPage({ params }: PageProps) {
     setActiveModal(moduleType);
     setModalLoading(true);
     setModalData(null);
+    setInteractionLog(null);
 
     try {
-      const result = await fetchModuleDetails(
-        sectionId,
-        studentId,
-        caseId,
-        moduleType,
-        selectedAttempt || undefined
-      );
-      setModalData(result);
+      if (moduleType === "conversations") {
+        const log = await fetchInteractionLog(
+          sectionId,
+          studentId,
+          caseId,
+          selectedAttempt || undefined
+        );
+        setInteractionLog(log);
+      } else {
+        const result = await fetchModuleDetails(
+          sectionId,
+          studentId,
+          caseId,
+          moduleType,
+          selectedAttempt || undefined
+        );
+        setModalData(result);
+      }
     } catch (err) {
       console.error("Failed to load modal data:", err);
     } finally {
@@ -229,6 +450,7 @@ export default function StudentHistoryDetailPage({ params }: PageProps) {
   const closeModal = () => {
     setActiveModal(null);
     setModalData(null);
+    setInteractionLog(null);
   };
 
   if (loading) {
@@ -386,7 +608,7 @@ export default function StudentHistoryDetailPage({ params }: PageProps) {
 
         {/* Conversations Module */}
         <ModuleCard
-          title="Conversations"
+          title="Interaction Log"
           icon={<MessageSquare size={24} />}
           onClick={() => openModal("conversations")}
         >
@@ -489,24 +711,30 @@ export default function StudentHistoryDetailPage({ params }: PageProps) {
       </div>
 
       {/* Detail Modal */}
-      <Modal isOpen={activeModal !== null} onClose={closeModal} size="2xl">
+      <Modal
+        isOpen={activeModal !== null}
+        onClose={closeModal}
+        size={activeModal === "conversations" ? "3xl" : "2xl"}
+        scrollBehavior="inside"
+      >
         <ModalContent>
           {(onClose) => (
             <>
               <ModalHeader className="flex flex-col gap-1">
                 {activeModal === "time" && "Time Usage Details"}
-                {activeModal === "conversations" && "Conversation Details"}
+                {activeModal === "conversations" &&
+                  `Interaction Log${selectedAttempt ? ` — Attempt ${selectedAttempt}` : ""}`}
                 {activeModal === "score" && "Score Details"}
                 {activeModal === "learning" && "Learning Curve Details"}
               </ModalHeader>
               <ModalBody>
                 {modalLoading ? (
                   <div className="flex justify-center py-8">
-                    <Spinner label="Loading details..." />
+                    <Spinner label="Loading..." />
                   </div>
-                ) : modalData ? (
+                ) : (
                   <div className="space-y-4">
-                    {activeModal === "time" && (
+                    {activeModal === "time" && modalData && (
                       <>
                         <div className="grid grid-cols-2 gap-4">
                           <Card>
@@ -552,32 +780,16 @@ export default function StudentHistoryDetailPage({ params }: PageProps) {
                     )}
 
                     {activeModal === "conversations" && (
-                      <div className="space-y-3">
-                        {modalData.conversations.map((conv: any) => (
-                          <Card key={conv.sessionId}>
-                            <CardBody>
-                              <div className="flex justify-between items-start">
-                                <div>
-                                  <p className="font-medium">{conv.date}</p>
-                                  <p className="text-sm text-default-500">
-                                    {conv.messageCount} messages •{" "}
-                                    {conv.duration} min
-                                  </p>
-                                  <p className="text-sm mt-2 text-default-600">
-                                    {conv.preview}
-                                  </p>
-                                </div>
-                                <Chip size="sm" variant="flat">
-                                  {conv.sessionId}
-                                </Chip>
-                              </div>
-                            </CardBody>
-                          </Card>
-                        ))}
-                      </div>
+                      interactionLog ? (
+                        <InteractionLogView log={interactionLog} />
+                      ) : (
+                        <div className="flex items-center justify-center py-12 text-default-400">
+                          No interaction log found for this attempt
+                        </div>
+                      )
                     )}
 
-                    {activeModal === "score" && (
+                    {activeModal === "score" && modalData && (
                       <>
                         <div className="grid grid-cols-2 gap-4">
                           <Card>
@@ -639,7 +851,7 @@ export default function StudentHistoryDetailPage({ params }: PageProps) {
                       </>
                     )}
 
-                    {activeModal === "learning" && (
+                    {activeModal === "learning" && modalData && (
                       <>
                         <div className="grid grid-cols-2 gap-4">
                           <Card>
@@ -692,10 +904,6 @@ export default function StudentHistoryDetailPage({ params }: PageProps) {
                       </>
                     )}
                   </div>
-                ) : (
-                  <p className="text-center text-default-500 py-8">
-                    No data available
-                  </p>
                 )}
               </ModalBody>
               <ModalFooter>
