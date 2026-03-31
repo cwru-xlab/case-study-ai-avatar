@@ -416,60 +416,6 @@ function CaseDetailView({ data, studentEmail, codeId }: { data: CaseDetailData; 
             </Card>
           )}
 
-          {/* Interaction Timeline */}
-          <Card className="md:col-span-2">
-            <CardHeader>
-              <h3 className="font-semibold">Interaction Timeline</h3>
-            </CardHeader>
-            <CardBody className="pt-0">
-              <div className="space-y-2 max-h-96 overflow-y-auto">
-                {selectedAttemptLog.events?.map((event: any, idx: number) => {
-                  const time = new Date(event.timestamp).toLocaleTimeString();
-                  let label = "";
-                  let color = "default";
-
-                  switch (event.type) {
-                    case "start_session":
-                      label = "Session started";
-                      color = "success";
-                      break;
-                    case "enter_role":
-                      label = `Entered conversation with ${event.roleName}`;
-                      color = "primary";
-                      break;
-                    case "exit_role":
-                      label = `Left conversation with ${event.roleName}`;
-                      color = "warning";
-                      break;
-                    case "send_message":
-                      label = `Student → ${event.roleName}: ${(event.messageContent || "").substring(0, 80)}${(event.messageContent || "").length > 80 ? "..." : ""}`;
-                      break;
-                    case "receive_message":
-                      label = `${event.roleName} → Student: ${(event.messageContent || "").substring(0, 80)}${(event.messageContent || "").length > 80 ? "..." : ""}`;
-                      break;
-                    case "switch_interaction_mode":
-                      label = `Switched to ${event.interactionMode === "avatar" ? "Avatar" : "Text"} mode${event.roleName ? ` (${event.roleName})` : ""}`;
-                      color = "secondary";
-                      break;
-                    case "end_session":
-                      label = "Session ended";
-                      color = "danger";
-                      break;
-                  }
-
-                  return (
-                    <div key={idx} className="flex items-start gap-3 text-sm">
-                      <span className="text-default-400 font-mono text-xs whitespace-nowrap pt-0.5">{time}</span>
-                      <span className={`flex-1 ${event.type === "send_message" || event.type === "receive_message" ? "text-default-600" : "font-medium"}`}>
-                        {label}
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
-            </CardBody>
-          </Card>
-
           {/* Unified Interaction Log */}
           <Card className="md:col-span-2">
             <CardHeader>
@@ -485,13 +431,15 @@ function CaseDetailView({ data, studentEmail, codeId }: { data: CaseDetailData; 
   );
 }
 
-const ROLE_COLORS = [
-  "bg-blue-50 text-blue-900",
-  "bg-emerald-50 text-emerald-900",
-  "bg-violet-50 text-violet-900",
-  "bg-amber-50 text-amber-900",
-  "bg-rose-50 text-rose-900",
-];
+function getRoleColor(roleName?: string): string {
+  if (!roleName) return "bg-slate-100 text-slate-900";
+  let hash = 0;
+  for (let i = 0; i < roleName.length; i++) {
+    hash = (hash * 31 + roleName.charCodeAt(i)) & 0xffff;
+  }
+  const hue = hash % 360;
+  return `hsl(${hue} 40% 92%)`;
+}
 
 function buildUnifiedTimeline(log: any) {
   type Item =
@@ -558,15 +506,6 @@ function buildUnifiedTimeline(log: any) {
 
 function UnifiedChatView({ log }: { log: any }) {
   const timeline = buildUnifiedTimeline(log);
-  const roleColorMap = new Map<string, string>();
-
-  function getRoleColor(roleName?: string) {
-    if (!roleName) return ROLE_COLORS[0];
-    if (!roleColorMap.has(roleName)) {
-      roleColorMap.set(roleName, ROLE_COLORS[roleColorMap.size % ROLE_COLORS.length]);
-    }
-    return roleColorMap.get(roleName)!;
-  }
 
   if (timeline.length === 0) {
     return (
@@ -599,10 +538,9 @@ function UnifiedChatView({ log }: { log: any }) {
             )}
             <div
               className={`max-w-[70%] px-4 py-2.5 rounded-2xl text-sm leading-relaxed ${
-                isUser
-                  ? "bg-primary text-white rounded-tr-sm"
-                  : `${getRoleColor(item.roleName)} rounded-tl-sm`
+                isUser ? "bg-primary text-white rounded-tr-sm" : "rounded-tl-sm"
               }`}
+              style={!isUser ? { background: getRoleColor(item.roleName) } : undefined}
             >
               {item.content}
             </div>

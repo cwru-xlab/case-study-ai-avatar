@@ -139,20 +139,14 @@ function formatTime(ts: number): string {
 
 // ─── Chat bubble components ───────────────────────────────────────────────────
 
-const ROLE_COLORS = [
-  "bg-blue-100 text-blue-900",
-  "bg-emerald-100 text-emerald-900",
-  "bg-violet-100 text-violet-900",
-  "bg-amber-100 text-amber-900",
-  "bg-rose-100 text-rose-900",
-];
-
-function getRoleColor(roleName: string | undefined, roleColorMap: Map<string, string>): string {
-  if (!roleName) return ROLE_COLORS[0];
-  if (!roleColorMap.has(roleName)) {
-    roleColorMap.set(roleName, ROLE_COLORS[roleColorMap.size % ROLE_COLORS.length]);
+function getRoleColor(roleName?: string): string {
+  if (!roleName) return "hsl(0 0% 94%)";
+  let hash = 0;
+  for (let i = 0; i < roleName.length; i++) {
+    hash = (hash * 31 + roleName.charCodeAt(i)) & 0xffff;
   }
-  return roleColorMap.get(roleName)!;
+  const hue = hash % 360;
+  return `hsl(${hue} 40% 92%)`;
 }
 
 function EventMarker({ label, timestamp }: { label: string; timestamp: number }) {
@@ -167,17 +161,8 @@ function EventMarker({ label, timestamp }: { label: string; timestamp: number })
   );
 }
 
-function ChatBubble({
-  item,
-  roleColorMap,
-}: {
-  item: TimelineMessage;
-  roleColorMap: Map<string, string>;
-}) {
+function ChatBubble({ item }: { item: TimelineMessage }) {
   const isUser = item.role === "user";
-  const colorClass = isUser
-    ? "bg-primary text-white"
-    : getRoleColor(item.roleName, roleColorMap);
 
   return (
     <div className={`flex flex-col ${isUser ? "items-end" : "items-start"} mb-2`}>
@@ -185,9 +170,10 @@ function ChatBubble({
         <span className="text-xs text-default-400 mb-1 ml-1">{item.roleName}</span>
       )}
       <div
-        className={`max-w-[70%] px-4 py-2.5 rounded-2xl text-sm leading-relaxed ${colorClass} ${
-          isUser ? "rounded-tr-sm" : "rounded-tl-sm"
+        className={`max-w-[70%] px-4 py-2.5 rounded-2xl text-sm leading-relaxed ${
+          isUser ? "bg-primary text-white rounded-tr-sm" : "rounded-tl-sm"
         }`}
+        style={!isUser ? { background: getRoleColor(item.roleName) } : undefined}
       >
         {item.content}
       </div>
@@ -198,7 +184,6 @@ function ChatBubble({
 
 function InteractionLogView({ log }: { log: InteractionLog }) {
   const timeline = buildTimeline(log);
-  const roleColorMap = new Map<string, string>();
 
   if (timeline.length === 0) {
     return (
@@ -214,7 +199,7 @@ function InteractionLogView({ log }: { log: InteractionLog }) {
         item.kind === "event" ? (
           <EventMarker key={idx} label={item.label} timestamp={item.timestamp} />
         ) : (
-          <ChatBubble key={idx} item={item} roleColorMap={roleColorMap} />
+          <ChatBubble key={idx} item={item} />
         )
       )}
     </div>
