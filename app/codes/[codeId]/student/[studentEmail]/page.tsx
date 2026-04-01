@@ -416,91 +416,140 @@ function CaseDetailView({ data, studentEmail, codeId }: { data: CaseDetailData; 
             </Card>
           )}
 
-          {/* Interaction Timeline */}
+          {/* Unified Interaction Log */}
           <Card className="md:col-span-2">
             <CardHeader>
-              <h3 className="font-semibold">Interaction Timeline</h3>
+              <h3 className="font-semibold">Interaction Log</h3>
             </CardHeader>
             <CardBody className="pt-0">
-              <div className="space-y-2 max-h-96 overflow-y-auto">
-                {selectedAttemptLog.events?.map((event: any, idx: number) => {
-                  const time = new Date(event.timestamp).toLocaleTimeString();
-                  let label = "";
-                  let color = "default";
-
-                  switch (event.type) {
-                    case "start_session":
-                      label = "Session started";
-                      color = "success";
-                      break;
-                    case "enter_role":
-                      label = `Entered conversation with ${event.roleName}`;
-                      color = "primary";
-                      break;
-                    case "exit_role":
-                      label = `Left conversation with ${event.roleName}`;
-                      color = "warning";
-                      break;
-                    case "send_message":
-                      label = `Student → ${event.roleName}: ${(event.messageContent || "").substring(0, 80)}${(event.messageContent || "").length > 80 ? "..." : ""}`;
-                      break;
-                    case "receive_message":
-                      label = `${event.roleName} → Student: ${(event.messageContent || "").substring(0, 80)}${(event.messageContent || "").length > 80 ? "..." : ""}`;
-                      break;
-                    case "switch_interaction_mode":
-                      label = `Switched to ${event.interactionMode === "avatar" ? "Avatar" : "Text"} mode${event.roleName ? ` (${event.roleName})` : ""}`;
-                      color = "secondary";
-                      break;
-                    case "end_session":
-                      label = "Session ended";
-                      color = "danger";
-                      break;
-                  }
-
-                  return (
-                    <div key={idx} className="flex items-start gap-3 text-sm">
-                      <span className="text-default-400 font-mono text-xs whitespace-nowrap pt-0.5">{time}</span>
-                      <span className={`flex-1 ${event.type === "send_message" || event.type === "receive_message" ? "text-default-600" : "font-medium"}`}>
-                        {label}
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
-            </CardBody>
-          </Card>
-
-          {/* Full Conversation by Role */}
-          <Card className="md:col-span-2">
-            <CardHeader>
-              <h3 className="font-semibold">Conversations by Role</h3>
-            </CardHeader>
-            <CardBody className="pt-0 space-y-4">
-              {Object.entries(selectedAttemptLog.roleInteractions || {}).map(([roleId, interaction]: [string, any]) => (
-                <div key={roleId} className="border rounded-lg overflow-hidden">
-                  <div className="p-3 bg-default-100 font-medium text-sm">
-                    {interaction.roleName} ({interaction.messages?.length || 0} messages)
-                  </div>
-                  <div className="p-3 space-y-2 max-h-64 overflow-y-auto">
-                    {interaction.messages?.map((msg: any, idx: number) => (
-                      <div key={idx} className={`text-sm ${msg.role === "user" ? "text-right" : "text-left"}`}>
-                        <span className={`inline-block p-2 rounded-lg max-w-[80%] ${
-                          msg.role === "user" ? "bg-primary/10" : "bg-default-50"
-                        }`}>
-                          <span className="text-xs text-default-400 block mb-1">
-                            {msg.role === "user" ? "Student" : interaction.roleName} - {new Date(msg.timestamp).toLocaleTimeString()}
-                          </span>
-                          {msg.content}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ))}
+              <UnifiedChatView log={selectedAttemptLog} />
             </CardBody>
           </Card>
         </>
       )}
+    </div>
+  );
+}
+
+function getRoleColor(roleName?: string): string {
+  if (!roleName) return "bg-slate-100 text-slate-900";
+  let hash = 0;
+  for (let i = 0; i < roleName.length; i++) {
+    hash = (hash * 31 + roleName.charCodeAt(i)) & 0xffff;
+  }
+  const hue = hash % 360;
+  return `hsl(${hue} 40% 92%)`;
+}
+
+function buildUnifiedTimeline(log: any) {
+  type Item =
+    | { kind: "message"; role: "user" | "assistant"; content: string; roleName?: string; timestamp: number }
+    | { kind: "event"; label: string; timestamp: number };
+
+  const items: Item[] = [];
+
+  if (log.events && log.events.length > 0) {
+    for (const event of log.events) {
+      if (event.type === "send_message" || event.type === "receive_message") {
+        if (event.messageContent) {
+          items.push({
+            kind: "message",
+            role: event.messageRole || (event.type === "send_message" ? "user" : "assistant"),
+            content: event.messageContent,
+            roleName: event.roleName,
+            timestamp: event.timestamp,
+          });
+        }
+      } else {
+        let label = "";
+        switch (event.type) {
+          case "start_session": label = "Session started"; break;
+          case "end_session": label = "Session ended"; break;
+          case "enter_role": label = `Joined: ${event.roleName || event.roleId || "avatar"}`; break;
+          case "exit_role": label = `Left: ${event.roleName || event.roleId || "avatar"}`; break;
+          case "switch_interaction_mode": label = `Switched to ${event.interactionMode || "unknown"} mode`; break;
+          default: label = event.type.replace(/_/g, " ");
+        }
+        items.push({ kind: "event", label, timestamp: event.timestamp });
+      }
+    }
+  } else {
+    // Fallback: build from roleInteractions
+    for (const interaction of Object.values(log.roleInteractions || {}) as any[]) {
+      items.push({
+        kind: "event",
+        label: `Joined: ${interaction.roleName}`,
+        timestamp: interaction.enteredAt,
+      });
+      for (const msg of interaction.messages || []) {
+        items.push({
+          kind: "message",
+          role: msg.role,
+          content: msg.content,
+          roleName: interaction.roleName,
+          timestamp: msg.timestamp,
+        });
+      }
+      if (interaction.exitedAt) {
+        items.push({
+          kind: "event",
+          label: `Left: ${interaction.roleName}`,
+          timestamp: interaction.exitedAt,
+        });
+      }
+    }
+    items.sort((a, b) => a.timestamp - b.timestamp);
+  }
+
+  return items;
+}
+
+function UnifiedChatView({ log }: { log: any }) {
+  const timeline = buildUnifiedTimeline(log);
+
+  if (timeline.length === 0) {
+    return (
+      <div className="py-8 text-center text-default-400">
+        No messages recorded
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col max-h-[600px] overflow-y-auto px-2 py-1 space-y-1">
+      {timeline.map((item, idx) => {
+        if (item.kind === "event") {
+          return (
+            <div key={idx} className="flex items-center gap-3 my-2">
+              <div className="flex-1 h-px bg-default-200" />
+              <span className="text-xs text-default-400 whitespace-nowrap">
+                {item.label} · {new Date(item.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+              </span>
+              <div className="flex-1 h-px bg-default-200" />
+            </div>
+          );
+        }
+
+        const isUser = item.role === "user";
+        return (
+          <div key={idx} className={`flex flex-col ${isUser ? "items-end" : "items-start"} mb-1`}>
+            {!isUser && item.roleName && (
+              <span className="text-xs text-default-400 mb-0.5 ml-1">{item.roleName}</span>
+            )}
+            <div
+              className={`max-w-[70%] px-4 py-2.5 rounded-2xl text-sm leading-relaxed ${
+                isUser ? "bg-primary text-white rounded-tr-sm" : "rounded-tl-sm"
+              }`}
+              style={!isUser ? { background: getRoleColor(item.roleName) } : undefined}
+            >
+              {item.content}
+            </div>
+            <span className="text-xs text-default-300 mt-0.5 mx-1">
+              {new Date(item.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+            </span>
+          </div>
+        );
+      })}
     </div>
   );
 }
