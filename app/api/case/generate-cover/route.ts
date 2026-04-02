@@ -77,9 +77,9 @@ export async function POST(request: NextRequest) {
           { status: 500 }
         );
       }
-      if (error.message.includes("billing") || error.message.includes("quota")) {
+      if (error.message.includes("billing") || error.message.includes("quota") || error.message.includes("Billing hard limit")) {
         return NextResponse.json(
-          { error: "OpenAI API quota exceeded" },
+          { error: "OpenAI billing limit reached. Please check your OpenAI account or upload an image manually." },
           { status: 500 }
         );
       }
@@ -89,6 +89,15 @@ export async function POST(request: NextRequest) {
           { status: 400 }
         );
       }
+    }
+
+    // Check for billing error in error object
+    const errorObj = error as { code?: string };
+    if (errorObj.code === "billing_hard_limit_reached") {
+      return NextResponse.json(
+        { error: "OpenAI billing limit reached. Please check your OpenAI account or upload an image manually." },
+        { status: 500 }
+      );
     }
 
     return NextResponse.json(
