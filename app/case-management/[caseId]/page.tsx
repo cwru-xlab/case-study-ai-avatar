@@ -14,7 +14,7 @@ import {
   useDisclosure,
 } from "@heroui/modal";
 import { Select, SelectItem } from "@heroui/select";
-import { ArrowLeft, Plus, Save, Trash2, X, Upload, ImageIcon } from "lucide-react";
+import { ArrowLeft, Plus, Save, Trash2, X, Upload, ImageIcon, Sparkles } from "lucide-react";
 import { addToast } from "@heroui/toast";
 import { title as pageTitle } from "@/components/primitives";
 import { useAuth } from "@/lib/auth-context";
@@ -37,6 +37,7 @@ export default function CaseDetailPage() {
   const [avatars, setAvatars] = useState<CaseAvatar[]>([]);
   const [coverImage, setCoverImage] = useState<string | undefined>(undefined);
   const [uploadingCover, setUploadingCover] = useState(false);
+  const [generatingCover, setGeneratingCover] = useState(false);
   const coverInputRef = useRef<HTMLInputElement>(null);
 
   const [profiles, setProfiles] = useState<VideoAudioProfile[]>([]);
@@ -292,6 +293,52 @@ export default function CaseDetailPage() {
     setCoverImage(undefined);
   };
 
+  const handleGenerateAICover = async () => {
+    if (!name.trim() && !backgroundInfo.trim()) {
+      addToast({
+        title: "Missing information",
+        description: "Please enter a case name or background info to generate an image",
+        color: "warning",
+      });
+      return;
+    }
+
+    setGeneratingCover(true);
+    try {
+      const response = await fetch("/api/case/generate-cover", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          caseId: isNewCase ? generatedId : caseId,
+          name,
+          backgroundInfo: backgroundInfo.substring(0, 500),
+        }),
+      });
+
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || "Failed to generate image");
+      }
+
+      const data = await response.json();
+      setCoverImage(data.url);
+      addToast({
+        title: "Cover image generated",
+        description: "AI has created a cover image for your case study.",
+        color: "success",
+      });
+    } catch (error) {
+      console.error("Error generating cover image:", error);
+      addToast({
+        title: "Generation failed",
+        description: error instanceof Error ? error.message : "Failed to generate image",
+        color: "danger",
+      });
+    } finally {
+      setGeneratingCover(false);
+    }
+  };
+
   const handleAddAvatar = () => {
     const newAvatar: CaseAvatar = {
       id: `avatar-${Date.now()}`,
@@ -393,7 +440,7 @@ export default function CaseDetailPage() {
           <div className="space-y-3">
             <label className="text-sm font-medium">Cover Image</label>
             <p className="text-sm text-default-500">
-              Upload a cover image for this case study. This will be displayed on the case card.
+              Upload an image or generate one with AI based on your case content.
             </p>
             
             {coverImage ? (
@@ -406,7 +453,16 @@ export default function CaseDetailPage() {
                     className="object-cover"
                   />
                 </div>
-                <div className="flex gap-2 mt-3">
+                <div className="flex gap-2 mt-3 flex-wrap">
+                  <Button
+                    size="sm"
+                    variant="bordered"
+                    startContent={<Sparkles className="w-4 h-4" />}
+                    onPress={handleGenerateAICover}
+                    isLoading={generatingCover}
+                  >
+                    Regenerate with AI
+                  </Button>
                   <Button
                     size="sm"
                     variant="bordered"
@@ -414,7 +470,7 @@ export default function CaseDetailPage() {
                     onPress={() => coverInputRef.current?.click()}
                     isLoading={uploadingCover}
                   >
-                    Change Image
+                    Upload New
                   </Button>
                   <Button
                     size="sm"
@@ -428,22 +484,25 @@ export default function CaseDetailPage() {
                 </div>
               </div>
             ) : (
-              <div
-                className="w-full max-w-md h-48 border-2 border-dashed border-default-300 rounded-lg flex flex-col items-center justify-center cursor-pointer hover:border-primary hover:bg-primary/5 transition-colors"
-                onClick={() => coverInputRef.current?.click()}
-              >
-                {uploadingCover ? (
-                  <div className="flex flex-col items-center gap-2">
-                    <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-                    <p className="text-sm text-default-500">Uploading...</p>
-                  </div>
-                ) : (
-                  <>
-                    <ImageIcon className="w-12 h-12 text-default-300 mb-2" />
-                    <p className="text-sm text-default-500">Click to upload cover image</p>
-                    <p className="text-xs text-default-400">JPEG, PNG up to 5MB</p>
-                  </>
-                )}
+              <div className="flex gap-3 flex-wrap">
+                <Button
+                  color="primary"
+                  variant="flat"
+                  startContent={generatingCover ? null : <Sparkles className="w-4 h-4" />}
+                  onPress={handleGenerateAICover}
+                  isLoading={generatingCover}
+                  isDisabled={!name.trim() && !backgroundInfo.trim()}
+                >
+                  {generatingCover ? "Generating..." : "Generate with AI"}
+                </Button>
+                <Button
+                  variant="bordered"
+                  startContent={uploadingCover ? null : <Upload className="w-4 h-4" />}
+                  onPress={() => coverInputRef.current?.click()}
+                  isLoading={uploadingCover}
+                >
+                  Upload Image
+                </Button>
               </div>
             )}
             
