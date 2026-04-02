@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { Card, CardBody, CardHeader } from "@heroui/card";
 import { Button } from "@heroui/button";
@@ -14,11 +14,12 @@ import {
   useDisclosure,
 } from "@heroui/modal";
 import { Select, SelectItem } from "@heroui/select";
-import { ArrowLeft, Plus, Save, Trash2, X } from "lucide-react";
+import { ArrowLeft, Plus, Save, Trash2, X, Upload, ImageIcon } from "lucide-react";
 import { addToast } from "@heroui/toast";
 import { title as pageTitle } from "@/components/primitives";
 import { useAuth } from "@/lib/auth-context";
 import { caseStorage } from "@/lib/case-storage";
+import Image from "next/image";
 import type { CaseStudy, CaseAvatar, VideoAudioProfile } from "@/types";
 
 export default function CaseDetailPage() {
@@ -34,6 +35,9 @@ export default function CaseDetailPage() {
   const [backgroundInfo, setBackgroundInfo] = useState("");
   const [evaluationPrompt, setEvaluationPrompt] = useState("");
   const [avatars, setAvatars] = useState<CaseAvatar[]>([]);
+  const [coverImage, setCoverImage] = useState<string | undefined>(undefined);
+  const [uploadingCover, setUploadingCover] = useState(false);
+  const coverInputRef = useRef<HTMLInputElement>(null);
 
   const [profiles, setProfiles] = useState<VideoAudioProfile[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -47,6 +51,7 @@ export default function CaseDetailPage() {
     backgroundInfo: "",
     evaluationPrompt: "",
     avatars: "[]",
+    coverImage: undefined as string | undefined,
   });
 
   const generatedId = useMemo(() => {
@@ -65,9 +70,10 @@ export default function CaseDetailPage() {
       name !== originalValues.name ||
       backgroundInfo !== originalValues.backgroundInfo ||
       evaluationPrompt !== originalValues.evaluationPrompt ||
-      JSON.stringify(avatars) !== originalValues.avatars
+      JSON.stringify(avatars) !== originalValues.avatars ||
+      coverImage !== originalValues.coverImage
     );
-  }, [name, backgroundInfo, evaluationPrompt, avatars, originalValues]);
+  }, [name, backgroundInfo, evaluationPrompt, avatars, coverImage, originalValues]);
 
   useEffect(() => {
     const loadCase = async () => {
@@ -80,11 +86,13 @@ export default function CaseDetailPage() {
             setBackgroundInfo(caseData.backgroundInfo);
             setEvaluationPrompt(caseData.evaluationPrompt || "");
             setAvatars(caseData.avatars);
+            setCoverImage(caseData.coverImage);
             setOriginalValues({
               name: caseData.name,
               backgroundInfo: caseData.backgroundInfo,
               evaluationPrompt: caseData.evaluationPrompt || "",
               avatars: JSON.stringify(caseData.avatars),
+              coverImage: caseData.coverImage,
             });
           } else {
             setErrors({ load: "Case not found" });
@@ -149,6 +157,7 @@ export default function CaseDetailPage() {
           name,
           backgroundInfo,
           evaluationPrompt: evaluationPrompt || undefined,
+          coverImage,
           avatars,
           cohortIds: [],
           createdBy: userName,
@@ -165,6 +174,7 @@ export default function CaseDetailPage() {
           name,
           backgroundInfo,
           evaluationPrompt: evaluationPrompt || undefined,
+          coverImage,
           avatars,
           lastEditedBy: userName,
         });
@@ -214,6 +224,72 @@ export default function CaseDetailPage() {
 
   const handleBack = () => {
     router.push("/case-management");
+  };
+
+  const handleCoverImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Validate file type
+    if (!file.type.startsWith("image/")) {
+      addToast({
+        title: "Invalid file type",
+        description: "Please upload an image file (JPEG, PNG, etc.)",
+        color: "danger",
+      });
+      return;
+    }
+
+    // Validate file size (max 5MB)
+    if (file.size > 5 * 1024 * 1024) {
+      addToast({
+        title: "File too large",
+        description: "Please upload an image smaller than 5MB",
+        color: "danger",
+      });
+      return;
+    }
+
+    setUploadingCover(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("caseId", isNewCase ? generatedId : caseId);
+
+      const response = await fetch("/api/case/upload-cover", {
+        method: "POST",
+        body: formData,
+      });
+
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || "Failed to upload image");
+      }
+
+      const data = await response.json();
+      setCoverImage(data.url);
+      addToast({
+        title: "Cover image uploaded",
+        description: "Your cover image has been uploaded successfully.",
+        color: "success",
+      });
+    } catch (error) {
+      console.error("Error uploading cover image:", error);
+      addToast({
+        title: "Upload failed",
+        description: error instanceof Error ? error.message : "Failed to upload image",
+        color: "danger",
+      });
+    } finally {
+      setUploadingCover(false);
+      if (coverInputRef.current) {
+        coverInputRef.current.value = "";
+      }
+    }
+  };
+
+  const handleRemoveCoverImage = () => {
+    setCoverImage(undefined);
   };
 
   const handleAddAvatar = () => {
@@ -310,6 +386,73 @@ export default function CaseDetailPage() {
               }
               label={isNewCase ? "Case ID (Auto-generated)" : "Case ID"}
               value={generatedId}
+            />
+          </div>
+
+          {/* Cover Image */}
+          <div className="space-y-3">
+            <label className="text-sm font-medium">Cover Image</label>
+            <p className="text-sm text-default-500">
+              Upload a cover image for this case study. This will be displayed on the case card.
+            </p>
+            
+            {coverImage ? (
+              <div className="relative w-full max-w-md">
+                <div className="relative w-full h-48 rounded-lg overflow-hidden border border-default-200">
+                  <Image
+                    src={coverImage}
+                    alt="Case cover"
+                    fill
+                    className="object-cover"
+                  />
+                </div>
+                <div className="flex gap-2 mt-3">
+                  <Button
+                    size="sm"
+                    variant="bordered"
+                    startContent={<Upload className="w-4 h-4" />}
+                    onPress={() => coverInputRef.current?.click()}
+                    isLoading={uploadingCover}
+                  >
+                    Change Image
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="bordered"
+                    color="danger"
+                    startContent={<X className="w-4 h-4" />}
+                    onPress={handleRemoveCoverImage}
+                  >
+                    Remove
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <div
+                className="w-full max-w-md h-48 border-2 border-dashed border-default-300 rounded-lg flex flex-col items-center justify-center cursor-pointer hover:border-primary hover:bg-primary/5 transition-colors"
+                onClick={() => coverInputRef.current?.click()}
+              >
+                {uploadingCover ? (
+                  <div className="flex flex-col items-center gap-2">
+                    <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+                    <p className="text-sm text-default-500">Uploading...</p>
+                  </div>
+                ) : (
+                  <>
+                    <ImageIcon className="w-12 h-12 text-default-300 mb-2" />
+                    <p className="text-sm text-default-500">Click to upload cover image</p>
+                    <p className="text-xs text-default-400">JPEG, PNG up to 5MB</p>
+                  </>
+                )}
+              </div>
+            )}
+            
+            <input
+              ref={coverInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={handleCoverImageUpload}
             />
           </div>
 

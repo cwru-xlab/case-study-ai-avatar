@@ -201,6 +201,7 @@ export interface CaseStudy {
   name: string;
   backgroundInfo: string;
   evaluationPrompt?: string;
+  coverImage?: string;  // URL to cover image stored in S3
   avatars: CaseAvatar[];
   cohortIds: string[];  // Cases are assigned to cohorts (following Alfred's sectionIds pattern)
   createdBy: string;
