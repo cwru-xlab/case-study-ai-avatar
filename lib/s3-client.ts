@@ -804,7 +804,7 @@ export class S3AvatarStorage {
       ) {
         return null;
       }
-      console.error(`Failed to get profile ${id}:`, error);
+      console.error("Failed to get profile:", id, error);
       return null;
     }
   }
@@ -1240,7 +1240,7 @@ export class S3AvatarStorage {
           await s3Client.send(new DeleteObjectCommand({ Bucket: BUCKET_NAME, Key: key }));
         } catch (error: any) {
           if (error.name !== 'NoSuchKey') {
-            console.error(`Error deleting profile image ${key}:`, error);
+            console.error("Error deleting profile image:", key, error);
           }
         }
       })
