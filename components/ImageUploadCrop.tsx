@@ -28,6 +28,8 @@ interface ImageUploadCropProps {
   onImageDeleted?: () => void;
   /** Whether the component is disabled */
   disabled?: boolean;
+  /** Upload endpoint (defaults to /api/avatar/upload-image) */
+  uploadEndpoint?: string;
 }
 
 // Crop settings for circular avatar
@@ -101,7 +103,8 @@ export default function ImageUploadCrop({
   currentPortrait,
   onImageUploaded,
   onImageDeleted,
-  disabled = false
+  disabled = false,
+  uploadEndpoint = '/api/avatar/upload-image',
 }: ImageUploadCropProps) {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [imageSrc, setImageSrc] = useState<string>("");
@@ -285,7 +288,7 @@ export default function ImageUploadCrop({
 
       setUploadProgress(60);
 
-      const response = await fetch('/api/avatar/upload-image', {
+      const response = await fetch(uploadEndpoint, {
         method: 'POST',
         body: formData,
       });
@@ -336,7 +339,7 @@ export default function ImageUploadCrop({
     setIsUploading(true);
 
     try {
-      const response = await fetch(`/api/avatar/upload-image?avatarId=${avatarId}`, {
+      const response = await fetch(`${uploadEndpoint}?avatarId=${avatarId}`, {
         method: 'DELETE',
       });
 

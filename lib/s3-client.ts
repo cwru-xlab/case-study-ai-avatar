@@ -1212,6 +1212,41 @@ export class S3AvatarStorage {
     return null; // No image found
   }
 
+  async uploadProfileImage(profileId: string, imageFile: File): Promise<string> {
+    const fileExtension = imageFile.name.split('.').pop()?.toLowerCase() || 'jpg';
+    const key = `${PROFILES_PREFIX}${profileId}/portrait.${fileExtension}`;
+
+    const command = new PutObjectCommand({
+      Bucket: BUCKET_NAME,
+      Key: key,
+      Body: new Uint8Array(await imageFile.arrayBuffer()),
+      ContentType: imageFile.type,
+      ACL: 'public-read',
+    });
+
+    await s3Client.send(command);
+
+    const region = process.env.AWS_REGION || "us-east-2";
+    return `https://${BUCKET_NAME}.s3.${region}.amazonaws.com/${key}`;
+  }
+
+  async deleteProfileImage(profileId: string): Promise<void> {
+    const extensions = ['jpg', 'jpeg', 'png'];
+
+    await Promise.all(
+      extensions.map(async (ext) => {
+        const key = `${PROFILES_PREFIX}${profileId}/portrait.${ext}`;
+        try {
+          await s3Client.send(new DeleteObjectCommand({ Bucket: BUCKET_NAME, Key: key }));
+        } catch (error: any) {
+          if (error.name !== 'NoSuchKey') {
+            console.error(`Error deleting profile image ${key}:`, error);
+          }
+        }
+      })
+    );
+  }
+
   /**
    * ==================================================================================
    * COHORT STORAGE METHODS

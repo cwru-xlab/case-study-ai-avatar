@@ -19,11 +19,30 @@ export default function AvatarProfilesPage() {
   const [profiles, setProfiles] = useState<CachedVideoAudioProfile[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [avatarImageMap, setAvatarImageMap] = useState<Record<string, string>>({});
 
   // Load profiles on component mount
   useEffect(() => {
     loadProfiles();
+    loadHeyGenAvatarImages();
   }, []);
+
+  const loadHeyGenAvatarImages = async () => {
+    try {
+      const res = await fetch("/api/avatar/heygen-list");
+      if (!res.ok) return;
+      const data = await res.json();
+      const map: Record<string, string> = {};
+      for (const avatar of data.avatars ?? []) {
+        if (avatar.avatar_id && avatar.preview_image_url) {
+          map[avatar.avatar_id] = avatar.preview_image_url;
+        }
+      }
+      setAvatarImageMap(map);
+    } catch {
+      // silently fail — image display is non-critical
+    }
+  };
 
   const loadProfiles = async () => {
     try {
@@ -56,9 +75,6 @@ export default function AvatarProfilesPage() {
       {/* Header with title and buttons */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div className="flex items-center gap-3">
-          <div className="flex items-center justify-center w-10 h-10 rounded-full bg-linear-to-br from-primary-100 to-secondary-100">
-            <Video className="w-5 h-5 text-primary-600" />
-          </div>
           <div>
             <h1 className={title()}>Avatar Profiles</h1>
             <p className="text-sm text-default-500 mt-1">
@@ -132,6 +148,7 @@ export default function AvatarProfilesPage() {
               profile={profile}
               onClick={handleProfileClick}
               isDirty={profile.isDirty}
+              avatarImageUrl={profile.portrait || avatarImageMap[profile.avatarName]}
             />
           ))}
         </div>

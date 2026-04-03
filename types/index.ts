@@ -70,6 +70,9 @@ export interface VideoAudioProfile {
   // Audio/Voice Settings
   voice: VoiceConfig;                   // Voice configuration (rate, voiceId, emotion)
   
+  // Optional portrait image
+  portrait?: string;                    // Custom portrait image URL (S3)
+
   // Optional HeyGen Knowledge Base
   knowledgeId?: string;                 // Optional knowledge base ID
   
