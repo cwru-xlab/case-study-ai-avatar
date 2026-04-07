@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { Card, CardBody, CardHeader } from "@heroui/card";
 import { Button } from "@heroui/button";
@@ -14,11 +14,12 @@ import {
   useDisclosure,
 } from "@heroui/modal";
 import { Select, SelectItem } from "@heroui/select";
-import { ArrowLeft, Plus, Save, Trash2, X } from "lucide-react";
+import { ArrowLeft, Plus, Save, Trash2, X, Upload, ImageIcon, Sparkles } from "lucide-react";
 import { addToast } from "@heroui/toast";
 import { title as pageTitle } from "@/components/primitives";
 import { useAuth } from "@/lib/auth-context";
 import { caseStorage } from "@/lib/case-storage";
+import Image from "next/image";
 import type { CaseStudy, CaseAvatar, VideoAudioProfile } from "@/types";
 
 export default function CaseDetailPage() {
@@ -34,6 +35,10 @@ export default function CaseDetailPage() {
   const [backgroundInfo, setBackgroundInfo] = useState("");
   const [evaluationPrompt, setEvaluationPrompt] = useState("");
   const [avatars, setAvatars] = useState<CaseAvatar[]>([]);
+  const [coverImage, setCoverImage] = useState<string | undefined>(undefined);
+  const [uploadingCover, setUploadingCover] = useState(false);
+  const [generatingCover, setGeneratingCover] = useState(false);
+  const coverInputRef = useRef<HTMLInputElement>(null);
 
   const [profiles, setProfiles] = useState<VideoAudioProfile[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -47,6 +52,7 @@ export default function CaseDetailPage() {
     backgroundInfo: "",
     evaluationPrompt: "",
     avatars: "[]",
+    coverImage: undefined as string | undefined,
   });
 
   const generatedId = useMemo(() => {
@@ -65,9 +71,10 @@ export default function CaseDetailPage() {
       name !== originalValues.name ||
       backgroundInfo !== originalValues.backgroundInfo ||
       evaluationPrompt !== originalValues.evaluationPrompt ||
-      JSON.stringify(avatars) !== originalValues.avatars
+      JSON.stringify(avatars) !== originalValues.avatars ||
+      coverImage !== originalValues.coverImage
     );
-  }, [name, backgroundInfo, evaluationPrompt, avatars, originalValues]);
+  }, [name, backgroundInfo, evaluationPrompt, avatars, coverImage, originalValues]);
 
   useEffect(() => {
     const loadCase = async () => {
@@ -80,11 +87,13 @@ export default function CaseDetailPage() {
             setBackgroundInfo(caseData.backgroundInfo);
             setEvaluationPrompt(caseData.evaluationPrompt || "");
             setAvatars(caseData.avatars);
+            setCoverImage(caseData.coverImage);
             setOriginalValues({
               name: caseData.name,
               backgroundInfo: caseData.backgroundInfo,
               evaluationPrompt: caseData.evaluationPrompt || "",
               avatars: JSON.stringify(caseData.avatars),
+              coverImage: caseData.coverImage,
             });
           } else {
             setErrors({ load: "Case not found" });
@@ -149,6 +158,7 @@ export default function CaseDetailPage() {
           name,
           backgroundInfo,
           evaluationPrompt: evaluationPrompt || undefined,
+          coverImage,
           avatars,
           cohortIds: [],
           createdBy: userName,
@@ -165,6 +175,7 @@ export default function CaseDetailPage() {
           name,
           backgroundInfo,
           evaluationPrompt: evaluationPrompt || undefined,
+          coverImage,
           avatars,
           lastEditedBy: userName,
         });
@@ -214,6 +225,118 @@ export default function CaseDetailPage() {
 
   const handleBack = () => {
     router.push("/case-management");
+  };
+
+  const handleCoverImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Validate file type
+    if (!file.type.startsWith("image/")) {
+      addToast({
+        title: "Invalid file type",
+        description: "Please upload an image file (JPEG, PNG, etc.)",
+        color: "danger",
+      });
+      return;
+    }
+
+    // Validate file size (max 5MB)
+    if (file.size > 5 * 1024 * 1024) {
+      addToast({
+        title: "File too large",
+        description: "Please upload an image smaller than 5MB",
+        color: "danger",
+      });
+      return;
+    }
+
+    setUploadingCover(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("caseId", isNewCase ? generatedId : caseId);
+
+      const response = await fetch("/api/case/upload-cover", {
+        method: "POST",
+        body: formData,
+      });
+
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || "Failed to upload image");
+      }
+
+      const data = await response.json();
+      setCoverImage(data.url);
+      addToast({
+        title: "Cover image uploaded",
+        description: "Your cover image has been uploaded successfully.",
+        color: "success",
+      });
+    } catch (error) {
+      console.error("Error uploading cover image:", error);
+      addToast({
+        title: "Upload failed",
+        description: error instanceof Error ? error.message : "Failed to upload image",
+        color: "danger",
+      });
+    } finally {
+      setUploadingCover(false);
+      if (coverInputRef.current) {
+        coverInputRef.current.value = "";
+      }
+    }
+  };
+
+  const handleRemoveCoverImage = () => {
+    setCoverImage(undefined);
+  };
+
+  const handleGenerateAICover = async () => {
+    if (!name.trim() && !backgroundInfo.trim()) {
+      addToast({
+        title: "Missing information",
+        description: "Please enter a case name or background info to generate an image",
+        color: "warning",
+      });
+      return;
+    }
+
+    setGeneratingCover(true);
+    try {
+      const response = await fetch("/api/case/generate-cover", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          caseId: isNewCase ? generatedId : caseId,
+          name,
+          backgroundInfo: backgroundInfo.substring(0, 500),
+        }),
+      });
+
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || "Failed to generate image");
+      }
+
+      const data = await response.json();
+      setCoverImage(data.url);
+      addToast({
+        title: "Cover image generated",
+        description: "AI has created a cover image for your case study.",
+        color: "success",
+      });
+    } catch (error) {
+      console.error("Error generating cover image:", error);
+      addToast({
+        title: "Generation failed",
+        description: error instanceof Error ? error.message : "Failed to generate image",
+        color: "danger",
+      });
+    } finally {
+      setGeneratingCover(false);
+    }
   };
 
   const handleAddAvatar = () => {
@@ -310,6 +433,85 @@ export default function CaseDetailPage() {
               }
               label={isNewCase ? "Case ID (Auto-generated)" : "Case ID"}
               value={generatedId}
+            />
+          </div>
+
+          {/* Cover Image */}
+          <div className="space-y-3">
+            <label className="text-sm font-medium">Cover Image</label>
+            <p className="text-sm text-default-500">
+              Upload an image or generate one with AI based on your case content.
+            </p>
+            
+            {coverImage ? (
+              <div className="relative w-full max-w-md">
+                <div className="relative w-full h-48 rounded-lg overflow-hidden border border-default-200">
+                  <Image
+                    src={coverImage}
+                    alt="Case cover"
+                    fill
+                    className="object-cover"
+                  />
+                </div>
+                <div className="flex gap-2 mt-3 flex-wrap">
+                  <Button
+                    size="sm"
+                    variant="bordered"
+                    startContent={<Sparkles className="w-4 h-4" />}
+                    onPress={handleGenerateAICover}
+                    isLoading={generatingCover}
+                  >
+                    Regenerate with AI
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="bordered"
+                    startContent={<Upload className="w-4 h-4" />}
+                    onPress={() => coverInputRef.current?.click()}
+                    isLoading={uploadingCover}
+                  >
+                    Upload New
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="bordered"
+                    color="danger"
+                    startContent={<X className="w-4 h-4" />}
+                    onPress={handleRemoveCoverImage}
+                  >
+                    Remove
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <div className="flex gap-3 flex-wrap">
+                <Button
+                  color="primary"
+                  variant="flat"
+                  startContent={generatingCover ? null : <Sparkles className="w-4 h-4" />}
+                  onPress={handleGenerateAICover}
+                  isLoading={generatingCover}
+                  isDisabled={!name.trim() && !backgroundInfo.trim()}
+                >
+                  {generatingCover ? "Generating..." : "Generate with AI"}
+                </Button>
+                <Button
+                  variant="bordered"
+                  startContent={uploadingCover ? null : <Upload className="w-4 h-4" />}
+                  onPress={() => coverInputRef.current?.click()}
+                  isLoading={uploadingCover}
+                >
+                  Upload Image
+                </Button>
+              </div>
+            )}
+            
+            <input
+              ref={coverInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={handleCoverImageUpload}
             />
           </div>
 

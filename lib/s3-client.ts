@@ -1249,6 +1249,68 @@ export class S3AvatarStorage {
 
   /**
    * ==================================================================================
+   * CASE COVER IMAGE METHODS
+   * ==================================================================================
+   */
+
+  /**
+   * Upload Case Cover Image to S3
+   * 
+   * Uploads a cover image for a case study and returns the public S3 URL.
+   * Images are stored at: cases/{caseId}/cover.{ext}
+   */
+  async uploadCaseCoverImage(caseId: string, imageFile: File): Promise<string> {
+    const fileExtension = imageFile.name.split('.').pop()?.toLowerCase() || 'jpg';
+    const key = `${CASES_PREFIX}${caseId}/cover.${fileExtension}`;
+
+    const command = new PutObjectCommand({
+      Bucket: BUCKET_NAME,
+      Key: key,
+      Body: new Uint8Array(await imageFile.arrayBuffer()),
+      ContentType: imageFile.type,
+      ACL: 'public-read',
+    });
+
+    await s3Client.send(command);
+
+    const region = process.env.AWS_REGION || "us-east-2";
+    const publicUrl = `https://${BUCKET_NAME}.s3.${region}.amazonaws.com/${key}`;
+    
+    console.log(`Case cover image uploaded: ${publicUrl}`);
+    return publicUrl;
+  }
+
+  /**
+   * Delete Case Cover Image from S3
+   * 
+   * Removes the case cover image file.
+   * Handles multiple extensions for compatibility.
+   */
+  async deleteCaseCoverImage(caseId: string): Promise<void> {
+    const extensions = ['jpg', 'jpeg', 'png', 'webp', 'gif'];
+    
+    const deletePromises = extensions.map(async (ext) => {
+      const key = `${CASES_PREFIX}${caseId}/cover.${ext}`;
+      try {
+        const command = new DeleteObjectCommand({
+          Bucket: BUCKET_NAME,
+          Key: key,
+        });
+        await s3Client.send(command);
+        console.log(`Attempted deletion of case cover image: ${key}`);
+      } catch (error: unknown) {
+        const err = error as { name?: string };
+        if (err.name !== 'NoSuchKey') {
+          console.error(`Error deleting case cover image ${key}:`, error);
+        }
+      }
+    });
+
+    await Promise.all(deletePromises);
+  }
+
+  /**
+   * ==================================================================================
    * COHORT STORAGE METHODS
    * ==================================================================================
    */
