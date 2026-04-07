@@ -22,6 +22,7 @@ import {
   Trash2,
   Video,
   AudioLines,
+  Image as ImageIcon,
 } from "lucide-react";
 import { addToast } from "@heroui/toast";
 import { title as pageTitle } from "@/components/primitives";
@@ -31,6 +32,8 @@ import {
   DEFAULT_PROFILE_CONFIG,
 } from "@/lib/video-audio-profile-storage";
 import { type CachedVideoAudioProfile, VoiceEmotion } from "@/types";
+import AvatarImage from "@/components/AvatarImage";
+import ImageUploadCrop from "@/components/ImageUploadCrop";
 
 export default function AvatarProfileEditPage() {
   const params = useParams();
@@ -57,6 +60,9 @@ export default function AvatarProfileEditPage() {
   const [knowledgeId, setKnowledgeId] = useState(
     DEFAULT_PROFILE_CONFIG.knowledgeId || ""
   );
+
+  const [portrait, setPortrait] = useState("");
+  const [isImageUploadOpen, setIsImageUploadOpen] = useState(false);
 
   // UI state
   const [isLoading, setIsLoading] = useState(false);
@@ -173,6 +179,7 @@ export default function AvatarProfileEditPage() {
             setVoiceId(profile.voice.voiceId);
             setVoiceEmotion(profile.voice.emotion);
             setKnowledgeId(profile.knowledgeId || "");
+            setPortrait(profile.portrait || "");
 
             // Set original values for change detection
             setOriginalValues({
@@ -563,8 +570,22 @@ export default function AvatarProfileEditPage() {
             </CardHeader>
             <CardBody className="space-y-4">
               <div className="flex items-center gap-3">
-                <div className="flex items-center justify-center w-12 h-12 rounded-full bg-linear-to-br from-primary-100 to-secondary-100">
-                  <Video className="w-6 h-6 text-primary-600" />
+                <div className="relative">
+                  <AvatarImage
+                    name={name || "Profile"}
+                    portrait={portrait || undefined}
+                    size={48}
+                  />
+                  <Button
+                    isIconOnly
+                    size="sm"
+                    variant="flat"
+                    className="absolute -bottom-1 -right-1 min-w-6 w-6 h-6 bg-background border border-default-200"
+                    onPress={() => setIsImageUploadOpen(true)}
+                    isDisabled={isNewProfile}
+                  >
+                    <ImageIcon size={12} />
+                  </Button>
                 </div>
                 <div className="flex-1">
                   <p className="font-semibold">{name || "Profile Name"}</p>
@@ -627,6 +648,43 @@ export default function AvatarProfileEditPage() {
           </Card>
         </div>
       </div>
+
+      {/* Image Upload Modal */}
+      <Modal
+        isDismissable
+        isOpen={isImageUploadOpen}
+        size="2xl"
+        onOpenChange={setIsImageUploadOpen}
+      >
+        <ModalContent>
+          {(onClose) => (
+            <>
+              <ModalHeader className="flex flex-col gap-1">
+                <h3 className="text-lg font-semibold">Profile Picture</h3>
+                <p className="text-sm text-default-500">
+                  Upload a custom image for this avatar profile
+                </p>
+              </ModalHeader>
+              <ModalBody className="pb-6">
+                <ImageUploadCrop
+                  avatarId={profileId}
+                  avatarName={name || "Profile"}
+                  currentPortrait={portrait || undefined}
+                  uploadEndpoint="/api/profile/upload-image"
+                  onImageUploaded={(url) => {
+                    setPortrait(url);
+                    onClose();
+                  }}
+                  onImageDeleted={() => {
+                    setPortrait("");
+                    onClose();
+                  }}
+                />
+              </ModalBody>
+            </>
+          )}
+        </ModalContent>
+      </Modal>
 
       {/* Delete Confirmation Modal */}
       <Modal isDismissable={!isDeleting} isOpen={isOpen} onOpenChange={onOpenChange}>
