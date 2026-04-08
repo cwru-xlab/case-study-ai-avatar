@@ -818,7 +818,178 @@ export default function CasePlayPage() {
               <p className="text-sm">Choose from the roles on the left</p>
             </div>
           </div>
+        ) : interactionMode === "avatar" ? (
+          /* ── Immersive avatar mode: video fills the area, UI floats on top ── */
+          <div className="relative flex-1 bg-black overflow-hidden">
+            {/* Background video layer */}
+            {avatarConfigLoading ? (
+              <div className="absolute inset-0 flex items-center justify-center">
+                <Spinner size="lg" label="Loading avatar..." className="text-white" />
+              </div>
+            ) : (
+              <div className="absolute inset-0">
+                <InteractiveAvatarWrapper
+                  ref={avatarRef}
+                  config={avatarConfig ?? undefined}
+                  showHistory={false}
+                  autoStart={true}
+                  cleanMode={true}
+                />
+              </div>
+            )}
+
+            {/* Floating header */}
+            <div className="absolute top-0 left-0 right-0 z-10 p-3 flex items-center justify-between bg-gradient-to-b from-black/60 to-transparent">
+              <div>
+                <p className="font-semibold text-white">{selectedRole.name}</p>
+                <p className="text-sm text-white/70">{selectedRole.role}</p>
+              </div>
+              <div className="flex items-center gap-2">
+                {roleHasAvatarProfile && (
+                  <div className="flex gap-1">
+                    <Button
+                      size="sm"
+                      variant="flat"
+                      className={interactionMode === "text" ? "bg-white/20 text-white" : "bg-white/10 text-white/70"}
+                      onPress={() => handleSwitchInteractionMode("text")}
+                      startContent={<Type className="w-3 h-3" />}
+                    >
+                      Text
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="flat"
+                      className="bg-white/20 text-white"
+                      onPress={() => handleSwitchInteractionMode("avatar")}
+                      startContent={<Video className="w-3 h-3" />}
+                    >
+                      Avatar
+                    </Button>
+                  </div>
+                )}
+                <Button
+                  size="sm"
+                  variant="flat"
+                  className="bg-white/10 text-white/70 hover:bg-white/20"
+                  startContent={<LogOut className="w-4 h-4" />}
+                  onPress={() => {
+                    if (interactionLog && selectedRole) {
+                      const now = Date.now();
+                      interactionLog.events.push({
+                        type: "exit_role",
+                        roleId: selectedRole.id,
+                        roleName: selectedRole.name,
+                        timestamp: now,
+                      });
+                      if (interactionLog.roleInteractions[selectedRole.id]) {
+                        interactionLog.roleInteractions[selectedRole.id].exitedAt = now;
+                      }
+                      setInteractionLog({ ...interactionLog });
+                    }
+                    avatarRef.current?.stopSession();
+                    setSelectedRole(null);
+                  }}
+                >
+                  Leave
+                </Button>
+              </div>
+            </div>
+
+            {/* Floating chat history */}
+            <div className="absolute bottom-28 left-0 right-0 z-10 max-h-[40%] overflow-y-auto px-4 space-y-2">
+              {currentRoleMessages.length === 0 && (
+                <div className="text-center text-white/50 py-4">
+                  <p>Start speaking with {selectedRole.name}</p>
+                </div>
+              )}
+              {currentRoleMessages.map((msg, idx) => (
+                <div
+                  key={idx}
+                  className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
+                >
+                  <div
+                    className={`max-w-[75%] px-3 py-2 rounded-lg backdrop-blur-sm ${
+                      msg.role === "user"
+                        ? "bg-primary/70 text-white"
+                        : "bg-black/40 text-white"
+                    }`}
+                  >
+                    <p className="text-sm whitespace-pre-wrap">{msg.content}</p>
+                    <p className="text-xs mt-1 text-white/50">
+                      {new Date(msg.timestamp).toLocaleTimeString()}
+                    </p>
+                  </div>
+                </div>
+              ))}
+              {sending && (
+                <div className="flex justify-start">
+                  <div className="bg-black/40 backdrop-blur-sm px-3 py-2 rounded-lg">
+                    <Spinner size="sm" color="white" />
+                  </div>
+                </div>
+              )}
+              <div ref={chatEndRef} />
+            </div>
+
+            {/* Floating input area */}
+            <div className="absolute bottom-0 left-0 right-0 z-10 p-4 bg-gradient-to-t from-black/60 to-transparent">
+              <div className="flex flex-col items-center gap-2">
+                <Button
+                  size="lg"
+                  color={isRecording ? "danger" : "primary"}
+                  className={`rounded-full w-14 h-14 transition-all shadow-lg ${isRecording ? "scale-110" : ""}`}
+                  isIconOnly
+                  isDisabled={sending || isTranscribing}
+                  onMouseDown={handlePushToTalkDown}
+                  onMouseUp={handlePushToTalkUp}
+                  onMouseLeave={handlePushToTalkUp}
+                  onTouchStart={(e: React.TouchEvent) => { e.preventDefault(); handlePushToTalkDown(); }}
+                  onTouchEnd={(e: React.TouchEvent) => { e.preventDefault(); handlePushToTalkUp(); }}
+                >
+                  {isRecording ? (
+                    <MicOff className="w-5 h-5" />
+                  ) : isTranscribing ? (
+                    <Spinner size="sm" color="white" />
+                  ) : (
+                    <Mic className="w-5 h-5" />
+                  )}
+                </Button>
+                <p className="text-xs text-white/60">
+                  {isRecording
+                    ? "Release to send"
+                    : isTranscribing
+                      ? "Transcribing..."
+                      : sending
+                        ? "Getting response..."
+                        : "Hold to talk"}
+                </p>
+                <div className="flex gap-2 w-full max-w-md">
+                  <Input
+                    placeholder={`Or type a message...`}
+                    value={currentInput}
+                    onValueChange={setCurrentInput}
+                    onKeyDown={handleKeyDown}
+                    isDisabled={sending || isRecording || isTranscribing}
+                    size="sm"
+                    className="flex-1"
+                    classNames={{ inputWrapper: "bg-white/10 backdrop-blur-md border-white/20 text-white", input: "text-white placeholder:text-white/40" }}
+                  />
+                  <Button
+                    isIconOnly
+                    color="primary"
+                    size="sm"
+                    onPress={handleSendMessage}
+                    isLoading={sending}
+                    isDisabled={!currentInput.trim() || isRecording || isTranscribing}
+                  >
+                    <Send className="w-3 h-3" />
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </div>
         ) : (
+          /* ── Standard text mode layout ── */
           <>
             {/* Chat header */}
             <div className="p-4 border-b bg-default-50 flex items-center justify-between">
@@ -827,7 +998,6 @@ export default function CasePlayPage() {
                 <p className="text-sm text-default-500">{selectedRole.role}</p>
               </div>
               <div className="flex items-center gap-2">
-                {/* Interaction mode switch */}
                 {roleHasAvatarProfile && (
                   <div className="flex gap-1">
                     <Button
@@ -868,7 +1038,6 @@ export default function CasePlayPage() {
                       }
                       setInteractionLog({ ...interactionLog });
                     }
-                    // Stop avatar session when leaving role
                     if (interactionMode === "avatar") {
                       avatarRef.current?.stopSession();
                     }
@@ -880,27 +1049,7 @@ export default function CasePlayPage() {
               </div>
             </div>
 
-            {/* Avatar video area - shown only in avatar mode */}
-            {interactionMode === "avatar" && (
-              <div className="border-b">
-                {avatarConfigLoading ? (
-                  <div className="flex items-center justify-center py-12">
-                    <Spinner size="lg" label="Loading avatar profile..." />
-                  </div>
-                ) : (
-                  <div className="max-h-[300px] overflow-hidden">
-                    <InteractiveAvatarWrapper
-                      ref={avatarRef}
-                      config={avatarConfig ?? undefined}
-                      showHistory={false}
-                      autoStart={true}
-                    />
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Messages - always visible regardless of mode */}
+            {/* Messages */}
             <div className="flex-1 overflow-y-auto p-4 space-y-4">
               {currentRoleMessages.length === 0 && (
                 <div className="text-center text-default-400 py-8">
@@ -936,93 +1085,27 @@ export default function CasePlayPage() {
               <div ref={chatEndRef} />
             </div>
 
-            {/* Input area - changes based on interaction mode */}
+            {/* Text input */}
             <div className="p-4 border-t">
-              {interactionMode === "text" ? (
-                /* Text input mode */
-                <div className="flex gap-2">
-                  <Input
-                    placeholder={`Message ${selectedRole.name}...`}
-                    value={currentInput}
-                    onValueChange={setCurrentInput}
-                    onKeyDown={handleKeyDown}
-                    isDisabled={sending}
-                    className="flex-1"
-                  />
-                  <Button
-                    isIconOnly
-                    color="primary"
-                    onPress={handleSendMessage}
-                    isLoading={sending}
-                    isDisabled={!currentInput.trim()}
-                  >
-                    <Send className="w-4 h-4" />
-                  </Button>
-                </div>
-              ) : (
-                /* Avatar push-to-talk mode */
-                <div className="flex flex-col items-center gap-2">
-                  <div className="flex items-center gap-3">
-                    <Button
-                      size="lg"
-                      color={isRecording ? "danger" : "primary"}
-                      className={`rounded-full w-16 h-16 transition-all ${isRecording ? "scale-110" : ""}`}
-                      isIconOnly
-                      isDisabled={sending || isTranscribing}
-                      onMouseDown={handlePushToTalkDown}
-                      onMouseUp={handlePushToTalkUp}
-                      onMouseLeave={handlePushToTalkUp}
-                      onTouchStart={(e: React.TouchEvent) => {
-                        e.preventDefault();
-                        handlePushToTalkDown();
-                      }}
-                      onTouchEnd={(e: React.TouchEvent) => {
-                        e.preventDefault();
-                        handlePushToTalkUp();
-                      }}
-                    >
-                      {isRecording ? (
-                        <MicOff className="w-6 h-6" />
-                      ) : isTranscribing ? (
-                        <Spinner size="sm" color="white" />
-                      ) : (
-                        <Mic className="w-6 h-6" />
-                      )}
-                    </Button>
-                  </div>
-                  <p className="text-xs text-default-400">
-                    {isRecording
-                      ? "Release to send"
-                      : isTranscribing
-                        ? "Transcribing..."
-                        : sending
-                          ? "Getting response..."
-                          : "Hold to talk"}
-                  </p>
-                  {/* Also allow text input in avatar mode */}
-                  <div className="flex gap-2 w-full mt-2">
-                    <Input
-                      placeholder={`Or type a message...`}
-                      value={currentInput}
-                      onValueChange={setCurrentInput}
-                      onKeyDown={handleKeyDown}
-                      isDisabled={sending || isRecording || isTranscribing}
-                      size="sm"
-                      className="flex-1"
-                    />
-                    <Button
-                      isIconOnly
-                      color="primary"
-                      size="sm"
-                      onPress={handleSendMessage}
-                      isLoading={sending}
-                      isDisabled={!currentInput.trim() || isRecording || isTranscribing}
-                    >
-                      <Send className="w-3 h-3" />
-                    </Button>
-                  </div>
-                </div>
-              )}
+              <div className="flex gap-2">
+                <Input
+                  placeholder={`Message ${selectedRole.name}...`}
+                  value={currentInput}
+                  onValueChange={setCurrentInput}
+                  onKeyDown={handleKeyDown}
+                  isDisabled={sending}
+                  className="flex-1"
+                />
+                <Button
+                  isIconOnly
+                  color="primary"
+                  onPress={handleSendMessage}
+                  isLoading={sending}
+                  isDisabled={!currentInput.trim()}
+                >
+                  <Send className="w-4 h-4" />
+                </Button>
+              </div>
             </div>
           </>
         )}

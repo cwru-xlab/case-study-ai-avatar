@@ -167,12 +167,12 @@ const ActiveSession = forwardRef<
 
   if (cleanMode) {
     return (
-      <div className="w-full aspect-video relative overflow-hidden rounded-xl">
+      <div className="w-full h-full relative overflow-hidden">
         <video
           ref={videoRef}
           autoPlay
           playsInline
-          style={{ width: "100%", height: "100%", objectFit: "contain" }}
+          style={{ width: "100%", height: "100%", objectFit: "cover" }}
         >
           <track kind="captions" />
         </video>
