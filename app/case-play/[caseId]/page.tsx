@@ -850,7 +850,7 @@ export default function CasePlayPage() {
                     <Button
                       size="sm"
                       variant="flat"
-                      className={interactionMode === "text" ? "bg-white/20 text-white" : "bg-white/10 text-white/70"}
+                      className="bg-white/10 text-white/70"
                       onPress={() => handleSwitchInteractionMode("text")}
                       startContent={<Type className="w-3 h-3" />}
                     >
@@ -1003,7 +1003,7 @@ export default function CasePlayPage() {
                     <Button
                       size="sm"
                       variant="flat"
-                      color={interactionMode === "text" ? "primary" : "default"}
+                      color="primary"
                       onPress={() => handleSwitchInteractionMode("text")}
                       startContent={<Type className="w-3 h-3" />}
                     >
@@ -1012,7 +1012,7 @@ export default function CasePlayPage() {
                     <Button
                       size="sm"
                       variant="flat"
-                      color={interactionMode === "avatar" ? "primary" : "default"}
+                      color="default"
                       onPress={() => handleSwitchInteractionMode("avatar")}
                       startContent={<Video className="w-3 h-3" />}
                     >
@@ -1037,9 +1037,6 @@ export default function CasePlayPage() {
                         interactionLog.roleInteractions[selectedRole.id].exitedAt = now;
                       }
                       setInteractionLog({ ...interactionLog });
-                    }
-                    if (interactionMode === "avatar") {
-                      avatarRef.current?.stopSession();
                     }
                     setSelectedRole(null);
                   }}
