@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { Card, CardBody } from "@heroui/card";
 import { Button } from "@heroui/button";
 import { Chip } from "@heroui/chip";
-import { Briefcase, Users, RefreshCw, UserPlus, X } from "lucide-react";
+import { Briefcase, Users, RefreshCw, UserPlus, X, Video } from "lucide-react";
 import { addToast } from "@heroui/toast";
 
 import { title } from "@/components/primitives";
@@ -16,6 +16,7 @@ import type { Cohort } from "@/types/cohort";
 interface StudentCaseWithCohort extends CaseStudy {
   cohortId?: string;
   cohortName?: string;
+  heygenMinutesLimit?: number | null;
 }
 
 interface StudentCohort {
@@ -31,6 +32,7 @@ export default function StudentCasesPage() {
   const [cohorts, setCohorts] = useState<StudentCohort[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [avatarSecondsUsed, setAvatarSecondsUsed] = useState<Record<string, number>>({});
 
   // Pending cohort join state
   const [pendingCohort, setPendingCohort] = useState<Cohort | null>(null);
@@ -139,8 +141,25 @@ export default function StudentCasesPage() {
 
       const data = await response.json();
       console.log("[Student Cases] API response:", data);
-      setCases(data.cases || []);
+      const loadedCases: StudentCaseWithCohort[] = data.cases || [];
+      setCases(loadedCases);
       setCohorts(data.cohorts || []);
+
+      // Fetch used avatar time for cases that have a minutes limit
+      const casesWithLimit = loadedCases.filter((c) => c.heygenMinutesLimit != null && c.cohortId);
+      if (casesWithLimit.length > 0) {
+        const results = await Promise.all(
+          casesWithLimit.map((c) =>
+            fetch(`/api/interaction/avatar-time?studentEmail=${encodeURIComponent(user.email!)}&caseId=${encodeURIComponent(c.id)}`)
+              .then((r) => r.ok ? r.json() : { usedSeconds: 0 })
+              .then((d) => ({ caseId: c.id, usedSeconds: d.usedSeconds ?? 0 }))
+              .catch(() => ({ caseId: c.id, usedSeconds: 0 }))
+          )
+        );
+        const usedMap: Record<string, number> = {};
+        for (const r of results) usedMap[r.caseId] = r.usedSeconds;
+        setAvatarSecondsUsed(usedMap);
+      }
     } catch (err) {
       console.error("Error loading cases:", err);
       setError("Failed to load your cases. Please try again.");
@@ -297,12 +316,12 @@ export default function StudentCasesPage() {
             <Card
               key={caseItem.id}
               isPressable
-              className="hover:shadow-lg transition-shadow overflow-hidden"
+              className="h-full hover:shadow-lg transition-all duration-200 overflow-hidden"
               onPress={() => handleCaseClick(caseItem.id, caseItem.cohortId)}
             >
-              {/* Cover Image */}
+              {/* Cover image */}
               <div
-                className="relative h-52 bg-gradient-to-br from-primary-500 to-primary-700"
+                className="relative h-32 bg-gradient-to-br from-primary-500 to-primary-700"
                 style={caseItem.coverImage ? {
                   backgroundImage: `url(${caseItem.coverImage})`,
                   backgroundSize: "cover",
@@ -311,27 +330,51 @@ export default function StudentCasesPage() {
               >
                 <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/20 to-transparent" />
                 <div className="absolute bottom-0 left-0 right-0 p-4">
-                  <p className="text-white font-semibold text-sm leading-tight drop-shadow">
-                    {caseItem.name}
-                  </p>
-                  {caseItem.cohortName && (
-                    <p className="text-white/70 text-xs mt-0.5">
-                      {caseItem.cohortName}
-                    </p>
-                  )}
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 bg-white/20 backdrop-blur-sm rounded-full flex items-center justify-center shrink-0">
+                      <Briefcase className="w-4 h-4 text-white" />
+                    </div>
+                    <h3 className="text-white font-semibold text-lg truncate drop-shadow-md">
+                      {caseItem.name}
+                    </h3>
+                  </div>
                 </div>
               </div>
-              <CardBody>
-                <p className="text-sm text-default-600 line-clamp-3 mb-4">
+              <CardBody className="pt-3">
+                {caseItem.cohortName && (
+                  <p className="text-xs text-default-400 mb-1">{caseItem.cohortName}</p>
+                )}
+                <p className="text-sm text-default-600 line-clamp-2 mb-3">
                   {caseItem.backgroundInfo}
                 </p>
-                <div className="flex items-center gap-2 text-xs text-default-400">
+                <div className="flex items-center gap-2 text-xs text-default-400 flex-wrap">
                   {caseItem.avatars && caseItem.avatars.length > 0 && (
                     <Chip size="sm" variant="flat">
                       {caseItem.avatars.length} Avatar
                       {caseItem.avatars.length !== 1 ? "s" : ""}
                     </Chip>
                   )}
+                  {caseItem.heygenMinutesLimit != null && (() => {
+                    const limitSec = caseItem.heygenMinutesLimit * 60;
+                    const usedSec = avatarSecondsUsed[caseItem.id] ?? 0;
+                    const remainingSec = Math.max(0, limitSec - usedSec);
+                    const exhausted = remainingSec === 0;
+                    const label = exhausted
+                      ? "No avatar time left"
+                      : remainingSec < 60
+                        ? `${remainingSec}s avatar left`
+                        : `${Math.floor(remainingSec / 60)}m avatar left`;
+                    return (
+                      <Chip
+                        size="sm"
+                        variant="flat"
+                        color={exhausted ? "danger" : "warning"}
+                        startContent={<Video className="w-3 h-3" />}
+                      >
+                        {label}
+                      </Chip>
+                    );
+                  })()}
                 </div>
               </CardBody>
             </Card>

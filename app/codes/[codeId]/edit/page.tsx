@@ -101,11 +101,17 @@ export default function CodeEditPage() {
             setIsActive(cohort.isActive);
             setStudents(cohort.students || []);
             setEmailsText(cohort.students?.map((s) => s.email).join("\n") || "");
-            setAssignedCases(
-              cohort.assignedCases?.length
-                ? cohort.assignedCases
-                : (cohort.assignedCaseIds ?? []).map((id) => ({ caseId: id, heygenMinutesLimit: null }))
-            );
+            const loaded = cohort.assignedCases?.length
+              ? cohort.assignedCases
+              : (cohort.assignedCaseIds ?? []).map((id: string) => ({ caseId: id, heygenMinutesLimit: null }));
+            setAssignedCases(loaded);
+            const customEntries: Record<string, string> = {};
+            for (const a of loaded) {
+              if (a.heygenMinutesLimit !== null && ![5, 10, 15, 30, 60].includes(a.heygenMinutesLimit)) {
+                customEntries[a.caseId] = String(a.heygenMinutesLimit);
+              }
+            }
+            if (Object.keys(customEntries).length > 0) setCustomMinutesInput(customEntries);
             setPassingScore(cohort.passingScore ?? 70);
 
             if (cohort.availableDate) {
@@ -172,7 +178,10 @@ export default function CodeEditPage() {
     { label: "15 min", value: "15" },
     { label: "30 min", value: "30" },
     { label: "60 min", value: "60" },
+    { label: "Custom", value: "custom" },
   ];
+
+  const [customMinutesInput, setCustomMinutesInput] = useState<Record<string, string>>({});
 
   const parseEmails = (): CohortStudent[] => {
     const emails = emailsText
@@ -659,22 +668,63 @@ export default function CodeEditPage() {
                           >
                             {caseItem.name}
                           </p>
-                          {isAssigned && (
-                            <Select
-                              size="sm"
-                              className="w-32 shrink-0"
-                              selectedKeys={[assignment.heygenMinutesLimit === null ? "none" : String(assignment.heygenMinutesLimit)]}
-                              onSelectionChange={(keys) => {
-                                const val = Array.from(keys)[0] as string;
-                                setCaseHeygenLimit(caseItem.id, val === "none" ? null : parseInt(val));
-                              }}
-                              aria-label="Avatar time limit"
-                            >
-                              {HEYGEN_LIMIT_OPTIONS.map((opt) => (
-                                <SelectItem key={opt.value}>{opt.label}</SelectItem>
-                              ))}
-                            </Select>
-                          )}
+                          {isAssigned && (() => {
+                            const isCustom = caseItem.id in customMinutesInput;
+                            const selectValue = isCustom
+                              ? "custom"
+                              : assignment.heygenMinutesLimit === null
+                                ? "none"
+                                : [5, 10, 15, 30, 60].includes(assignment.heygenMinutesLimit)
+                                  ? String(assignment.heygenMinutesLimit)
+                                  : "custom";
+                            return (
+                              <div className="flex items-center gap-1 shrink-0">
+                                <Select
+                                  size="sm"
+                                  className="w-32"
+                                  selectedKeys={[selectValue]}
+                                  onSelectionChange={(keys) => {
+                                    const val = Array.from(keys)[0] as string;
+                                    if (val === "custom") {
+                                      setCustomMinutesInput((prev) => ({
+                                        ...prev,
+                                        [caseItem.id]: String(assignment.heygenMinutesLimit ?? ""),
+                                      }));
+                                      setCaseHeygenLimit(caseItem.id, assignment.heygenMinutesLimit ?? 1);
+                                    } else {
+                                      setCustomMinutesInput((prev) => {
+                                        const next = { ...prev };
+                                        delete next[caseItem.id];
+                                        return next;
+                                      });
+                                      setCaseHeygenLimit(caseItem.id, val === "none" ? null : parseInt(val));
+                                    }
+                                  }}
+                                  aria-label="Avatar time limit"
+                                >
+                                  {HEYGEN_LIMIT_OPTIONS.map((opt) => (
+                                    <SelectItem key={opt.value}>{opt.label}</SelectItem>
+                                  ))}
+                                </Select>
+                                {selectValue === "custom" && (
+                                  <Input
+                                    size="sm"
+                                    type="number"
+                                    min={1}
+                                    className="w-20"
+                                    value={customMinutesInput[caseItem.id] ?? String(assignment.heygenMinutesLimit ?? "")}
+                                    onValueChange={(val) => {
+                                      setCustomMinutesInput((prev) => ({ ...prev, [caseItem.id]: val }));
+                                      const num = parseInt(val);
+                                      if (num > 0) setCaseHeygenLimit(caseItem.id, num);
+                                    }}
+                                    endContent={<span className="text-default-400 text-xs">min</span>}
+                                    aria-label="Custom minutes"
+                                  />
+                                )}
+                              </div>
+                            );
+                          })()}
                         </div>
                       );
                     })
