@@ -17,11 +17,19 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const styleGuide = `\n\n## Reply Style
+- Speak naturally and conversationally, like a real person in a meeting or interview
+- Keep responses short and to the point — 1 to 3 sentences unless more detail is truly needed
+- Avoid bullet points, formal headings, or structured lists in your replies
+- Never start with filler phrases like "Certainly!", "Great question!", or "Of course!"
+- If you don't know something, say so simply and move on`;
+
     // Build system prompt from role context
     let fullSystemPrompt = systemPrompt || "You are a helpful assistant.";
     if (roleContext) {
       fullSystemPrompt = `You are playing the role of "${roleContext.roleName}" in a case study simulation.\n\n${roleContext.additionalInfo || ""}\n\n${systemPrompt || ""}`.trim();
     }
+    fullSystemPrompt += styleGuide;
 
     const fullMessages = [
       { role: "system" as const, content: fullSystemPrompt },
