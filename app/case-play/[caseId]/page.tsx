@@ -896,42 +896,6 @@ export default function CasePlayPage() {
               </div>
             </div>
 
-            {/* Floating chat history */}
-            <div className="absolute bottom-28 left-0 right-0 z-10 max-h-[40%] overflow-y-auto px-4 space-y-2">
-              {currentRoleMessages.length === 0 && (
-                <div className="text-center text-white/50 py-4">
-                  <p>Start speaking with {selectedRole.name}</p>
-                </div>
-              )}
-              {currentRoleMessages.map((msg, idx) => (
-                <div
-                  key={idx}
-                  className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
-                >
-                  <div
-                    className={`max-w-[75%] px-3 py-2 rounded-lg backdrop-blur-sm ${
-                      msg.role === "user"
-                        ? "bg-primary/70 text-white"
-                        : "bg-black/40 text-white"
-                    }`}
-                  >
-                    <p className="text-sm whitespace-pre-wrap">{msg.content}</p>
-                    <p className="text-xs mt-1 text-white/50">
-                      {new Date(msg.timestamp).toLocaleTimeString()}
-                    </p>
-                  </div>
-                </div>
-              ))}
-              {sending && (
-                <div className="flex justify-start">
-                  <div className="bg-black/40 backdrop-blur-sm px-3 py-2 rounded-lg">
-                    <Spinner size="sm" color="white" />
-                  </div>
-                </div>
-              )}
-              <div ref={chatEndRef} />
-            </div>
-
             {/* Floating input area */}
             <div className="absolute bottom-0 left-0 right-0 z-10 p-4 bg-gradient-to-t from-black/60 to-transparent">
               <div className="flex flex-col items-center gap-2">
@@ -964,28 +928,6 @@ export default function CasePlayPage() {
                         ? "Getting response..."
                         : "Hold to talk"}
                 </p>
-                <div className="flex gap-2 w-full max-w-md">
-                  <Input
-                    placeholder={`Or type a message...`}
-                    value={currentInput}
-                    onValueChange={setCurrentInput}
-                    onKeyDown={handleKeyDown}
-                    isDisabled={sending || isRecording || isTranscribing}
-                    size="sm"
-                    className="flex-1"
-                    classNames={{ inputWrapper: "bg-white/10 backdrop-blur-md border-white/20 text-white", input: "text-white placeholder:text-white/40" }}
-                  />
-                  <Button
-                    isIconOnly
-                    color="primary"
-                    size="sm"
-                    onPress={handleSendMessage}
-                    isLoading={sending}
-                    isDisabled={!currentInput.trim() || isRecording || isTranscribing}
-                  >
-                    <Send className="w-3 h-3" />
-                  </Button>
-                </div>
               </div>
             </div>
           </div>
