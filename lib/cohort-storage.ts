@@ -44,7 +44,7 @@ class CohortStorage {
       ...input,
       id,
       accessCode,
-      assignedCaseIds: input.assignedCaseIds || [],
+      assignedCases: input.assignedCases || [],
       createdAt: now,
       updatedAt: now,
       isActive: true,

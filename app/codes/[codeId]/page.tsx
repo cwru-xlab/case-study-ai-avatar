@@ -39,7 +39,7 @@ import { addToast } from "@heroui/toast";
 import { title as pageTitle } from "@/components/primitives";
 import { cohortStorage } from "@/lib/cohort-storage";
 import { caseStorage } from "@/lib/case-storage";
-import type { CachedCohort, CohortStudent } from "@/types/cohort";
+import type { CachedCohort, CohortStudent, CohortCaseAssignment } from "@/types/cohort";
 import type { CaseStudy } from "@/types";
 
 type StudentStatus = CohortStudent["status"];
@@ -165,7 +165,8 @@ export default function CodeDetailPage() {
   };
 
   const openAssignCasesModal = () => {
-    setAssignedCaseIds(code?.assignedCaseIds || []);
+    const ids = code?.assignedCases?.map((a) => a.caseId) ?? code?.assignedCaseIds ?? [];
+    setAssignedCaseIds(ids);
     setCaseSearchQuery("");
     loadAvailableCases();
     setAssignCasesModalOpen(true);
@@ -197,10 +198,15 @@ export default function CodeDetailPage() {
     if (!code) return;
     setSavingCases(true);
     try {
-      await cohortStorage.update(codeId, {
-        assignedCaseIds,
+      const existingAssignments = code.assignedCases ?? (code.assignedCaseIds ?? []).map((id) => ({ caseId: id, heygenMinutesLimit: null } as CohortCaseAssignment));
+      const updatedAssignments: CohortCaseAssignment[] = assignedCaseIds.map((id) => {
+        const existing = existingAssignments.find((a) => a.caseId === id);
+        return existing ?? { caseId: id, heygenMinutesLimit: null };
       });
-      setCode({ ...code, assignedCaseIds });
+      await cohortStorage.update(codeId, {
+        assignedCases: updatedAssignments,
+      });
+      setCode({ ...code, assignedCases: updatedAssignments });
       setAssignCasesModalOpen(false);
       addToast({ title: "Cases updated", color: "success" });
       loadGradebook();
@@ -802,10 +808,10 @@ export default function CodeDetailPage() {
                 {code.isActive ? "Active" : "Inactive"}
               </Chip>
             </div>
-            {code.assignedCaseIds && code.assignedCaseIds.length > 0 && (
+            {(code.assignedCases?.length || code.assignedCaseIds?.length || 0) > 0 && (
               <div className="flex justify-between items-center">
                 <span className="text-default-500">Assigned Cases</span>
-                <span>{code.assignedCaseIds.length} case(s)</span>
+                <span>{(code.assignedCases?.length ?? code.assignedCaseIds?.length ?? 0)} case(s)</span>
               </div>
             )}
           </CardBody>

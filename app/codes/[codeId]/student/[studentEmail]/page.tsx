@@ -602,7 +602,7 @@ export default function StudentDetailPage() {
           name: student.name || student.email.split("@")[0],
           cases: [],
           overallStats: {
-            totalCases: codeData.assignedCaseIds?.length || 0,
+            totalCases: (codeData.assignedCases?.length ?? codeData.assignedCaseIds?.length) || 0,
             completedCases: 0,
             avgScore: null,
             bestScore: null,

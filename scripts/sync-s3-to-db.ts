@@ -216,8 +216,9 @@ async function syncCohorts() {
     }
     
     // Sync case assignments
-    if (fullCohort.assignedCaseIds && Array.isArray(fullCohort.assignedCaseIds)) {
-      for (const caseId of fullCohort.assignedCaseIds) {
+    const syncCaseIds = fullCohort.assignedCases?.map((a: { caseId: string }) => a.caseId) ?? fullCohort.assignedCaseIds ?? [];
+    if (syncCaseIds.length > 0) {
+      for (const caseId of syncCaseIds) {
         // Find case by slug
         const caseRecord = await prisma.case.findUnique({
           where: { slug: caseId },
@@ -251,7 +252,7 @@ async function syncCohorts() {
           }
         }
       }
-      console.log(`      → ${fullCohort.assignedCaseIds.length} cases assigned`);
+      console.log(`      → ${syncCaseIds.length} cases assigned`);
     }
   }
 }

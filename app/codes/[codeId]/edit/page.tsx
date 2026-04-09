@@ -34,11 +34,13 @@ import { addToast } from "@heroui/toast";
 import { title as pageTitle } from "@/components/primitives";
 import { cohortStorage } from "@/lib/cohort-storage";
 import { caseStorage } from "@/lib/case-storage";
+import { Select, SelectItem } from "@heroui/select";
 import type {
   AccessMode,
   CohortStudent,
   CohortCreateInput,
   CachedCohort,
+  CohortCaseAssignment,
 } from "@/types/cohort";
 import { ACCESS_MODE_LABELS } from "@/types/cohort";
 import type { CaseStudy } from "@/types";
@@ -66,7 +68,7 @@ export default function CodeEditPage() {
   const [isActive, setIsActive] = useState(true);
 
   const [availableCases, setAvailableCases] = useState<CaseStudy[]>([]);
-  const [assignedCaseIds, setAssignedCaseIds] = useState<string[]>([]);
+  const [assignedCases, setAssignedCases] = useState<CohortCaseAssignment[]>([]);
   const [loadingCases, setLoadingCases] = useState(true);
   const [passingScore, setPassingScore] = useState<number>(70);
   const [caseSearchQuery, setCaseSearchQuery] = useState("");
@@ -99,7 +101,11 @@ export default function CodeEditPage() {
             setIsActive(cohort.isActive);
             setStudents(cohort.students || []);
             setEmailsText(cohort.students?.map((s) => s.email).join("\n") || "");
-            setAssignedCaseIds(cohort.assignedCaseIds || []);
+            setAssignedCases(
+              cohort.assignedCases?.length
+                ? cohort.assignedCases
+                : (cohort.assignedCaseIds ?? []).map((id) => ({ caseId: id, heygenMinutesLimit: null }))
+            );
             setPassingScore(cohort.passingScore ?? 70);
 
             if (cohort.availableDate) {
@@ -137,8 +143,16 @@ export default function CodeEditPage() {
   }, []);
 
   const toggleCaseAssignment = (caseId: string) => {
-    setAssignedCaseIds((prev) =>
-      prev.includes(caseId) ? prev.filter((id) => id !== caseId) : [...prev, caseId]
+    setAssignedCases((prev) =>
+      prev.some((a) => a.caseId === caseId)
+        ? prev.filter((a) => a.caseId !== caseId)
+        : [...prev, { caseId, heygenMinutesLimit: null }]
+    );
+  };
+
+  const setCaseHeygenLimit = (caseId: string, limit: number | null) => {
+    setAssignedCases((prev) =>
+      prev.map((a) => a.caseId === caseId ? { ...a, heygenMinutesLimit: limit } : a)
     );
   };
 
@@ -150,6 +164,15 @@ export default function CodeEditPage() {
     }
     return cases;
   };
+
+  const HEYGEN_LIMIT_OPTIONS = [
+    { label: "No limit", value: "none" },
+    { label: "5 min", value: "5" },
+    { label: "10 min", value: "10" },
+    { label: "15 min", value: "15" },
+    { label: "30 min", value: "30" },
+    { label: "60 min", value: "60" },
+  ];
 
   const parseEmails = (): CohortStudent[] => {
     const emails = emailsText
@@ -248,7 +271,7 @@ export default function CodeEditPage() {
           accessMode,
           availableDate: availableNow ? null : availableDate,
           expirationDate: neverExpires ? null : expirationDate,
-          assignedCaseIds,
+          assignedCases,
           students: parsedStudents,
           passingScore,
         };
@@ -269,7 +292,7 @@ export default function CodeEditPage() {
           accessMode,
           availableDate: availableNow ? null : availableDate,
           expirationDate: neverExpires ? null : expirationDate,
-          assignedCaseIds,
+          assignedCases,
           students: parsedStudents,
           isActive,
           passingScore,
@@ -573,9 +596,9 @@ export default function CodeEditPage() {
             <div className="flex items-center gap-2">
               <BookOpen className="w-5 h-5" />
               <h2 className="text-xl font-semibold">Assign Cases</h2>
-              {assignedCaseIds.length > 0 && (
+              {assignedCases.length > 0 && (
                 <Chip size="sm" variant="flat" color="primary">
-                  {assignedCaseIds.length} assigned
+                  {assignedCases.length} assigned
                 </Chip>
               )}
             </div>
@@ -590,7 +613,7 @@ export default function CodeEditPage() {
               </div>
             ) : (
               <>
-                {assignedCaseIds.length === 0 && (
+                {assignedCases.length === 0 && (
                   <p className="text-sm text-warning-600 bg-warning-50 p-3 rounded-lg">
                     No cases assigned. Learners won&apos;t see any case studies until you assign at least one.
                   </p>
@@ -614,29 +637,43 @@ export default function CodeEditPage() {
                     </div>
                   ) : (
                     getFilteredCases().map((caseItem) => {
-                      const isAssigned = assignedCaseIds.includes(caseItem.id);
+                      const assignment = assignedCases.find((a) => a.caseId === caseItem.id);
+                      const isAssigned = !!assignment;
                       return (
                         <div
                           key={caseItem.id}
-                          className={`flex items-center justify-between p-3 cursor-pointer transition-colors ${
-                            isAssigned 
-                              ? "bg-primary/10 hover:bg-primary/15" 
+                          className={`flex items-center gap-3 p-3 transition-colors ${
+                            isAssigned
+                              ? "bg-primary/10 hover:bg-primary/15"
                               : "hover:bg-default-50"
                           }`}
-                          onClick={() => toggleCaseAssignment(caseItem.id)}
                         >
-                          <div className="flex items-center gap-3 flex-1 min-w-0">
-                            <Checkbox
-                              isSelected={isAssigned}
-                              onValueChange={() => toggleCaseAssignment(caseItem.id)}
-                              color="primary"
-                            />
-                            <p className="font-medium text-sm truncate">{caseItem.name}</p>
-                          </div>
+                          <Checkbox
+                            isSelected={isAssigned}
+                            onValueChange={() => toggleCaseAssignment(caseItem.id)}
+                            color="primary"
+                          />
+                          <p
+                            className="font-medium text-sm flex-1 min-w-0 truncate cursor-pointer"
+                            onClick={() => toggleCaseAssignment(caseItem.id)}
+                          >
+                            {caseItem.name}
+                          </p>
                           {isAssigned && (
-                            <Chip size="sm" color="primary" variant="flat">
-                              Assigned
-                            </Chip>
+                            <Select
+                              size="sm"
+                              className="w-32 shrink-0"
+                              selectedKeys={[assignment.heygenMinutesLimit === null ? "none" : String(assignment.heygenMinutesLimit)]}
+                              onSelectionChange={(keys) => {
+                                const val = Array.from(keys)[0] as string;
+                                setCaseHeygenLimit(caseItem.id, val === "none" ? null : parseInt(val));
+                              }}
+                              aria-label="Avatar time limit"
+                            >
+                              {HEYGEN_LIMIT_OPTIONS.map((opt) => (
+                                <SelectItem key={opt.value}>{opt.label}</SelectItem>
+                              ))}
+                            </Select>
                           )}
                         </div>
                       );
@@ -645,7 +682,7 @@ export default function CodeEditPage() {
                 </div>
 
                 <p className="text-xs text-default-400">
-                  {availableCases.length} total cases • {assignedCaseIds.length} assigned • {availableCases.length - assignedCaseIds.length} available
+                  {availableCases.length} total cases • {assignedCases.length} assigned • {availableCases.length - assignedCases.length} available
                 </p>
               </>
             )}

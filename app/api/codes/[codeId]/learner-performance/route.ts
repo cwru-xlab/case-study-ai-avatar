@@ -14,7 +14,7 @@ export async function GET(
     }
 
     const students = cohort.students || [];
-    const assignedCaseIds = cohort.assignedCaseIds || [];
+    const assignedCaseIds = cohort.assignedCases?.map((a) => a.caseId) ?? cohort.assignedCaseIds ?? [];
 
     if (students.length === 0 || assignedCaseIds.length === 0) {
       return NextResponse.json({

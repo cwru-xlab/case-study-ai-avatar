@@ -86,6 +86,10 @@ export default function CasePlayPage() {
   const [avatarConfig, setAvatarConfig] = useState<StartAvatarRequest | null>(null);
   const [avatarConfigLoading, setAvatarConfigLoading] = useState(false);
 
+  // HeyGen avatar time limit (per cohort case assignment)
+  const [avatarTimeLimitSeconds, setAvatarTimeLimitSeconds] = useState<number | null>(null);
+  const [avatarTimeUsedSeconds, setAvatarTimeUsedSeconds] = useState<number>(0);
+
   // Finish confirmation modal
   const [showFinishModal, setShowFinishModal] = useState(false);
 
@@ -106,6 +110,33 @@ export default function CasePlayPage() {
       loadUnfinishedSessions();
     }
   }, [user?.email, caseId]);
+
+  // Load avatar time limit from cohort
+  useEffect(() => {
+    if (!user?.email || !cohortId || !caseId) return;
+    (async () => {
+      try {
+        const res = await fetch(`/api/cohort/get?id=${encodeURIComponent(cohortId)}`);
+        if (!res.ok) return;
+        const data = await res.json();
+        const cohort = data.cohort ?? data;
+        const assignment = cohort.assignedCases?.find((a: { caseId: string }) => a.caseId === caseId);
+        const limitMinutes: number | null = assignment?.heygenMinutesLimit ?? null;
+        if (limitMinutes === null) return;
+        const limitSeconds = limitMinutes * 60;
+        setAvatarTimeLimitSeconds(limitSeconds);
+        const timeRes = await fetch(
+          `/api/interaction/avatar-time?studentEmail=${encodeURIComponent(user.email)}&caseId=${encodeURIComponent(caseId)}`
+        );
+        if (timeRes.ok) {
+          const timeData = await timeRes.json();
+          setAvatarTimeUsedSeconds(timeData.usedSeconds ?? 0);
+        }
+      } catch {
+        // non-critical — fail silently
+      }
+    })();
+  }, [user?.email, cohortId, caseId]);
 
   const loadUnfinishedSessions = async () => {
     if (!user?.email) return;
@@ -338,6 +369,15 @@ export default function CasePlayPage() {
   const handleSwitchInteractionMode = (newMode: InteractionMode) => {
     if (newMode === interactionMode) return;
     if (!interactionLog || !selectedRole) return;
+
+    if (newMode === "avatar" && avatarTimeLimitSeconds !== null && avatarTimeUsedSeconds >= avatarTimeLimitSeconds) {
+      addToast({
+        title: "Avatar time limit reached",
+        description: `You have used all ${avatarTimeLimitSeconds / 60} minutes of avatar time for this case.`,
+        color: "warning",
+      });
+      return;
+    }
 
     const now = Date.now();
 
@@ -847,25 +887,46 @@ export default function CasePlayPage() {
               </div>
               <div className="flex items-center gap-2">
                 {roleHasAvatarProfile && (
-                  <div className="flex gap-1">
-                    <Button
-                      size="sm"
-                      variant="flat"
-                      className="bg-white/10 text-white/70"
-                      onPress={() => handleSwitchInteractionMode("text")}
-                      startContent={<Type className="w-3 h-3" />}
-                    >
-                      Text
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="flat"
-                      className="bg-white/20 text-white"
-                      onPress={() => handleSwitchInteractionMode("avatar")}
-                      startContent={<Video className="w-3 h-3" />}
-                    >
-                      Avatar
-                    </Button>
+                  <div className="flex items-center gap-2">
+                    <div className="flex gap-1">
+                      <Button
+                        size="sm"
+                        variant="flat"
+                        className="bg-white/10 text-white/70"
+                        onPress={() => handleSwitchInteractionMode("text")}
+                        startContent={<Type className="w-3 h-3" />}
+                      >
+                        Text
+                      </Button>
+                      {(() => {
+                        const limitExhausted = avatarTimeLimitSeconds !== null && avatarTimeUsedSeconds >= avatarTimeLimitSeconds;
+                        return (
+                          <Button
+                            size="sm"
+                            variant="flat"
+                            className="bg-white/20 text-white"
+                            onPress={() => handleSwitchInteractionMode("avatar")}
+                            startContent={<Video className="w-3 h-3" />}
+                            isDisabled={limitExhausted}
+                          >
+                            Avatar
+                          </Button>
+                        );
+                      })()}
+                    </div>
+                    {avatarTimeLimitSeconds !== null && (
+                      <span className={`text-xs font-medium ${avatarTimeUsedSeconds >= avatarTimeLimitSeconds ? "text-danger-400" : "text-white/60"}`}>
+                        {avatarTimeUsedSeconds >= avatarTimeLimitSeconds
+                          ? "Limit reached"
+                          : (() => {
+                              const remaining = avatarTimeLimitSeconds - avatarTimeUsedSeconds;
+                              return remaining < 60
+                                ? `${remaining}s left`
+                                : `${Math.floor(remaining / 60)}m left`;
+                            })()
+                        }
+                      </span>
+                    )}
                   </div>
                 )}
                 <Button
@@ -942,25 +1003,46 @@ export default function CasePlayPage() {
               </div>
               <div className="flex items-center gap-2">
                 {roleHasAvatarProfile && (
-                  <div className="flex gap-1">
-                    <Button
-                      size="sm"
-                      variant="flat"
-                      color="primary"
-                      onPress={() => handleSwitchInteractionMode("text")}
-                      startContent={<Type className="w-3 h-3" />}
-                    >
-                      Text
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="flat"
-                      color="default"
-                      onPress={() => handleSwitchInteractionMode("avatar")}
-                      startContent={<Video className="w-3 h-3" />}
-                    >
-                      Avatar
-                    </Button>
+                  <div className="flex items-center gap-2">
+                    <div className="flex gap-1">
+                      <Button
+                        size="sm"
+                        variant="flat"
+                        color="primary"
+                        onPress={() => handleSwitchInteractionMode("text")}
+                        startContent={<Type className="w-3 h-3" />}
+                      >
+                        Text
+                      </Button>
+                      {(() => {
+                        const limitExhausted = avatarTimeLimitSeconds !== null && avatarTimeUsedSeconds >= avatarTimeLimitSeconds;
+                        return (
+                          <Button
+                            size="sm"
+                            variant="flat"
+                            color="default"
+                            onPress={() => handleSwitchInteractionMode("avatar")}
+                            startContent={<Video className="w-3 h-3" />}
+                            isDisabled={limitExhausted}
+                          >
+                            Avatar
+                          </Button>
+                        );
+                      })()}
+                    </div>
+                    {avatarTimeLimitSeconds !== null && (
+                      <span className={`text-xs font-medium ${avatarTimeUsedSeconds >= avatarTimeLimitSeconds ? "text-danger-500" : "text-default-400"}`}>
+                        {avatarTimeUsedSeconds >= avatarTimeLimitSeconds
+                          ? "Limit reached"
+                          : (() => {
+                              const remaining = avatarTimeLimitSeconds - avatarTimeUsedSeconds;
+                              return remaining < 60
+                                ? `${remaining}s left`
+                                : `${Math.floor(remaining / 60)}m left`;
+                            })()
+                        }
+                      </span>
+                    )}
                   </div>
                 )}
                 <Button

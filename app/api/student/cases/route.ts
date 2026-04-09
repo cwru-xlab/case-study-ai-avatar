@@ -66,7 +66,7 @@ export async function GET(request: NextRequest) {
     const cohortInfo: Record<string, { cohortId: string; cohortName: string }> = {};
 
     for (const cohort of studentCohorts) {
-      const caseIds = cohort.assignedCaseIds || [];
+      const caseIds = cohort.assignedCases?.map((a) => a.caseId) ?? cohort.assignedCaseIds ?? [];
       for (const caseId of caseIds) {
         assignedCaseIds.add(caseId);
         cohortInfo[caseId] = {
@@ -95,7 +95,7 @@ export async function GET(request: NextRequest) {
       cohorts: studentCohorts.map((c) => ({
         id: c.id,
         name: c.name,
-        assignedCaseIds: c.assignedCaseIds || [],
+        assignedCaseIds: c.assignedCases?.map((a) => a.caseId) ?? c.assignedCaseIds ?? [],
       })),
     });
   } catch (error) {
