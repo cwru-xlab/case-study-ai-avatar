@@ -22,7 +22,7 @@ export default function CaseCard({ caseStudy, onClick }: CaseCardProps) {
     >
       {/* Background Cover Image */}
       <div 
-        className="relative h-32 bg-gradient-to-br from-primary-500 to-primary-700"
+        className="relative h-52 bg-gradient-to-br from-primary-500 to-primary-700"
         style={caseStudy.coverImage ? {
           backgroundImage: `url(${caseStudy.coverImage})`,
           backgroundSize: 'cover',

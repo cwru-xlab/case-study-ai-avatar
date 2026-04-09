@@ -2,10 +2,10 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { Card, CardBody, CardHeader } from "@heroui/card";
+import { Card, CardBody } from "@heroui/card";
 import { Button } from "@heroui/button";
 import { Chip } from "@heroui/chip";
-import { Briefcase, BookOpen, Users, RefreshCw, UserPlus, X } from "lucide-react";
+import { Briefcase, Users, RefreshCw, UserPlus, X } from "lucide-react";
 import { addToast } from "@heroui/toast";
 
 import { title } from "@/components/primitives";
@@ -297,25 +297,31 @@ export default function StudentCasesPage() {
             <Card
               key={caseItem.id}
               isPressable
-              className="hover:shadow-lg transition-shadow"
+              className="hover:shadow-lg transition-shadow overflow-hidden"
               onPress={() => handleCaseClick(caseItem.id, caseItem.cohortId)}
             >
-              <CardHeader className="flex gap-3 pb-0">
-                <div className="flex items-center justify-center w-10 h-10 rounded-lg bg-primary/10">
-                  <BookOpen className="text-primary" size={20} />
-                </div>
-                <div className="flex flex-col flex-1 min-w-0">
-                  <p className="text-sm font-semibold truncate">
+              {/* Cover Image */}
+              <div
+                className="relative h-52 bg-gradient-to-br from-primary-500 to-primary-700"
+                style={caseItem.coverImage ? {
+                  backgroundImage: `url(${caseItem.coverImage})`,
+                  backgroundSize: "cover",
+                  backgroundPosition: "center",
+                } : undefined}
+              >
+                <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/20 to-transparent" />
+                <div className="absolute bottom-0 left-0 right-0 p-4">
+                  <p className="text-white font-semibold text-sm leading-tight drop-shadow">
                     {caseItem.name}
                   </p>
                   {caseItem.cohortName && (
-                    <p className="text-xs text-default-500">
+                    <p className="text-white/70 text-xs mt-0.5">
                       {caseItem.cohortName}
                     </p>
                   )}
                 </div>
-              </CardHeader>
-              <CardBody className="pt-3">
+              </div>
+              <CardBody>
                 <p className="text-sm text-default-600 line-clamp-3 mb-4">
                   {caseItem.backgroundInfo}
                 </p>
