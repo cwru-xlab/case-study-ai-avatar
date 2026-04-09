@@ -557,6 +557,7 @@ export default function CasePlayPage() {
 
   const handlePushToTalkDown = () => {
     if (!sending && !isTranscribing) {
+      avatarRef.current?.interrupt();
       startRecording();
     }
   };

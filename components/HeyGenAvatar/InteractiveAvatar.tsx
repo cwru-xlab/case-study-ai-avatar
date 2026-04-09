@@ -12,6 +12,7 @@ import { Button } from "@heroui/button";
 import { AvatarVideo } from "./AvatarSession/AvatarVideo";
 import { useStreamingAvatarSession } from "./logic/useStreamingAvatarSession";
 import { useTextChat } from "./logic/useTextChat";
+import { useInterrupt } from "./logic/useInterrupt";
 import { StreamingAvatarProvider, StreamingAvatarSessionState } from "./logic";
 import { LoaderCircle, Circle, Square } from "lucide-react";
 import { MessageHistory } from "./AvatarSession/MessageHistory";
@@ -35,6 +36,7 @@ export interface InteractiveAvatarRef {
   speak: (text: string) => void;
   startSession: () => Promise<void>;
   stopSession: () => void;
+  interrupt: () => void;
 }
 
 interface InteractiveAvatarWrapperProps {
@@ -81,6 +83,7 @@ const ActiveSession = forwardRef<
     attachElement,
   } = useStreamingAvatarSession();
   const { repeatMessage } = useTextChat();
+  const { interrupt } = useInterrupt();
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -122,8 +125,9 @@ const ActiveSession = forwardRef<
       speak: (text: string) => repeatMessage(text),
       startSession: async () => { await startSession(); },
       stopSession: () => stopAvatar(),
+      interrupt: () => interrupt(),
     }),
-    [repeatMessage, startSession, stopAvatar],
+    [repeatMessage, startSession, stopAvatar, interrupt],
   );
 
   useUnmount(() => {
@@ -279,6 +283,7 @@ const InteractiveAvatarWrapper = forwardRef<
       speak: (text: string) => innerRef.current?.speak(text),
       startSession: triggerStart,
       stopSession: handleStop,
+      interrupt: () => innerRef.current?.interrupt(),
     }),
     [triggerStart, handleStop],
   );
@@ -346,7 +351,7 @@ const InteractiveAvatarWrapper = forwardRef<
 
   // Token ready => mount Provider + ActiveSession (which auto-starts on mount)
   return (
-    <StreamingAvatarProvider key={sessionToken} sessionAccessToken={sessionToken}>
+    <StreamingAvatarProvider key={sessionToken} sessionAccessToken={sessionToken} voiceChatConfig={false}>
       <ActiveSession
         ref={innerRef}
         showHistory={effectiveShowHistory}
