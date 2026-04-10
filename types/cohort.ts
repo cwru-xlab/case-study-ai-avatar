@@ -11,6 +11,11 @@ export interface CohortStudent {
   status: "invited" | "joined" | "active" | "completed";
 }
 
+export interface CohortCaseAssignment {
+  caseId: string;
+  heygenMinutesLimit: number | null; // null = no limit
+}
+
 export interface Cohort {
   id: string;
   name: string;
@@ -21,7 +26,8 @@ export interface Cohort {
   accessMode: AccessMode;
   availableDate: string | null; // null means "Now" (immediately available)
   expirationDate: string | null; // null means "Never" (no expiration)
-  assignedCaseIds: string[];  // Cases assigned to this cohort (following Alfred's pattern)
+  assignedCaseIds?: string[];  // Legacy field — prefer assignedCases
+  assignedCases: CohortCaseAssignment[];
   students: CohortStudent[];
   createdAt: string;
   updatedAt: string;
@@ -37,7 +43,7 @@ export interface CohortCreateInput {
   accessMode: AccessMode;
   availableDate: string | null;
   expirationDate: string | null;
-  assignedCaseIds?: string[];
+  assignedCases?: CohortCaseAssignment[];
   students: CohortStudent[];
   passingScore?: number; // Passing score threshold (default 70)
 }
@@ -48,7 +54,7 @@ export interface CohortUpdateInput {
   accessMode?: AccessMode;
   availableDate?: string | null;
   expirationDate?: string | null;
-  assignedCaseIds?: string[];
+  assignedCases?: CohortCaseAssignment[];
   students?: CohortStudent[];
   isActive?: boolean;
   passingScore?: number; // Passing score threshold

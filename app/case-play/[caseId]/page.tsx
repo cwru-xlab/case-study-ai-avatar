@@ -86,6 +86,14 @@ export default function CasePlayPage() {
   const [avatarConfig, setAvatarConfig] = useState<StartAvatarRequest | null>(null);
   const [avatarConfigLoading, setAvatarConfigLoading] = useState(false);
 
+  // HeyGen avatar time limit (per cohort case assignment)
+  const [avatarTimeLimitSeconds, setAvatarTimeLimitSeconds] = useState<number | null>(null);
+  const [avatarTotalSeconds, setAvatarTotalSeconds] = useState<number>(0); // never resets — accumulates all avatar time
+  const [avatarLimitExhausted, setAvatarLimitExhausted] = useState(false);
+  const [avatarGrandfathered, setAvatarGrandfathered] = useState(false); // true = current avatar session was running when limit hit, allow it to finish
+  const avatarModeStartRef = useRef<number | null>(null);
+  const avatarTimerRef = useRef<NodeJS.Timeout | null>(null);
+
   // Finish confirmation modal
   const [showFinishModal, setShowFinishModal] = useState(false);
 
@@ -106,6 +114,33 @@ export default function CasePlayPage() {
       loadUnfinishedSessions();
     }
   }, [user?.email, caseId]);
+
+  // Load avatar time limit from cohort
+  useEffect(() => {
+    if (!user?.email || !cohortId || !caseId) return;
+    (async () => {
+      try {
+        const res = await fetch(`/api/cohort/get?id=${encodeURIComponent(cohortId)}`);
+        if (!res.ok) return;
+        const data = await res.json();
+        const cohort = data.cohort ?? data;
+        const assignment = cohort.assignedCases?.find((a: { caseId: string }) => a.caseId === caseId);
+        const limitMinutes: number | null = assignment?.heygenMinutesLimit ?? null;
+        if (limitMinutes === null) return;
+        const limitSeconds = limitMinutes * 60;
+        setAvatarTimeLimitSeconds(limitSeconds);
+        const timeRes = await fetch(
+          `/api/interaction/avatar-time?studentEmail=${encodeURIComponent(user.email)}&caseId=${encodeURIComponent(caseId)}`
+        );
+        if (timeRes.ok) {
+          const timeData = await timeRes.json();
+          setAvatarTotalSeconds(timeData.usedSeconds ?? 0);
+        }
+      } catch {
+        // non-critical — fail silently
+      }
+    })();
+  }, [user?.email, cohortId, caseId]);
 
   const loadUnfinishedSessions = async () => {
     if (!user?.email) return;
@@ -148,9 +183,9 @@ export default function CasePlayPage() {
     interactionLogRef.current = interactionLog;
   }, [interactionLog]);
 
-  // Auto-save every 15 seconds for assessed mode
+  // Auto-save every 5 seconds for assessed mode
   useEffect(() => {
-    if (pageState === "playing" && mode === "assessed" && interactionLog) {
+    if (pageState === "playing" && mode === "assessed") {
       autoSaveRef.current = setInterval(() => {
         if (interactionLogRef.current) {
           saveInteraction(interactionLogRef.current);
@@ -161,7 +196,40 @@ export default function CasePlayPage() {
         if (autoSaveRef.current) clearInterval(autoSaveRef.current);
       };
     }
-  }, [pageState, mode, interactionLog]);
+  }, [pageState, mode]);
+
+  // Cleanup avatar timer on unmount
+  useEffect(() => {
+    return () => {
+      if (avatarTimerRef.current) clearInterval(avatarTimerRef.current);
+    };
+  }, []);
+
+  // Save interaction on page unload (tab close / navigate away)
+  useEffect(() => {
+    const handleUnload = () => {
+      const log = interactionLogRef.current;
+      if (log && log.mode === "assessed") {
+        navigator.sendBeacon(
+          "/api/interaction/save",
+          new Blob([JSON.stringify({ log })], { type: "application/json" })
+        );
+      }
+    };
+    window.addEventListener("beforeunload", handleUnload);
+    return () => window.removeEventListener("beforeunload", handleUnload);
+  }, []);
+
+  // Watch for limit exhaustion — set flag without interrupting current session
+  useEffect(() => {
+    if (avatarTimeLimitSeconds !== null && avatarTotalSeconds >= avatarTimeLimitSeconds && !avatarLimitExhausted) {
+      setAvatarLimitExhausted(true);
+      // If currently in an active avatar session, let it finish
+      if (interactionMode === "avatar") {
+        setAvatarGrandfathered(true);
+      }
+    }
+  }, [avatarTotalSeconds, avatarTimeLimitSeconds, avatarLimitExhausted, interactionMode]);
 
   // Load avatar profile config when role changes or when switching to avatar mode
   useEffect(() => {
@@ -304,6 +372,7 @@ export default function CasePlayPage() {
 
       // Stop avatar session when switching roles
       if (interactionMode === "avatar") {
+        stopAvatarTimer();
         avatarRef.current?.stopSession();
       }
     }
@@ -333,11 +402,29 @@ export default function CasePlayPage() {
 
     setSelectedRole(role);
     setInteractionLog({ ...interactionLog });
+
+    // Force text mode when switching to a new role if avatar limit is exhausted
+    if (avatarLimitExhausted && interactionMode === "avatar") {
+      setAvatarGrandfathered(false);
+      setInteractionMode("text");
+    }
+  };
+
+  const stopAvatarTimer = () => {
+    if (avatarTimerRef.current) {
+      clearInterval(avatarTimerRef.current);
+      avatarTimerRef.current = null;
+    }
+    avatarModeStartRef.current = null;
+    // avatarTotalSeconds is NOT reset — it keeps accumulating across sessions
   };
 
   const handleSwitchInteractionMode = (newMode: InteractionMode) => {
     if (newMode === interactionMode) return;
     if (!interactionLog || !selectedRole) return;
+
+    // Block switching to avatar if limit is exhausted
+    if (newMode === "avatar" && avatarLimitExhausted) return;
 
     const now = Date.now();
 
@@ -352,9 +439,20 @@ export default function CasePlayPage() {
     interactionLog.events.push(switchEvent);
     setInteractionLog({ ...interactionLog });
 
-    // Stop avatar session when switching away from avatar mode
-    if (interactionMode === "avatar" && newMode === "text") {
+    if (newMode === "avatar") {
+      // Start ticking — avatarTotalSeconds increments every second in avatar mode
+      avatarModeStartRef.current = Date.now();
+      const baseTotal = avatarTotalSeconds;
+      avatarTimerRef.current = setInterval(() => {
+        if (avatarModeStartRef.current !== null) {
+          setAvatarTotalSeconds(baseTotal + Math.round((Date.now() - avatarModeStartRef.current) / 1000));
+        }
+      }, 1000);
+    } else if (interactionMode === "avatar") {
+      // Pause timer — total already includes this session's time via setInterval
+      stopAvatarTimer();
       avatarRef.current?.stopSession();
+      setAvatarGrandfathered(false);
     }
 
     setInteractionMode(newMode);
@@ -578,6 +676,7 @@ export default function CasePlayPage() {
 
       // Stop avatar session if active
       if (interactionMode === "avatar") {
+        stopAvatarTimer();
         avatarRef.current?.stopSession();
       }
 
@@ -819,6 +918,26 @@ export default function CasePlayPage() {
               <p className="text-sm">Choose from the roles on the left</p>
             </div>
           </div>
+        ) : interactionMode === "avatar" && avatarLimitExhausted && !avatarGrandfathered ? (
+          /* ── Avatar limit exhausted screen ── */
+          <div className="flex-1 flex items-center justify-center bg-default-50">
+            <div className="text-center max-w-md px-6">
+              <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-danger-100 flex items-center justify-center">
+                <Video className="w-8 h-8 text-danger-500" />
+              </div>
+              <h3 className="text-xl font-semibold text-default-800 mb-2">Avatar Time Used Up</h3>
+              <p className="text-default-500 mb-6">
+                You have used all {avatarTimeLimitSeconds !== null ? avatarTimeLimitSeconds / 60 : 0} minutes of avatar interaction for this case. You can continue the case study using text chat.
+              </p>
+              <Button
+                color="primary"
+                onPress={() => setInteractionMode("text")}
+                startContent={<Type className="w-4 h-4" />}
+              >
+                Continue with Text
+              </Button>
+            </div>
+          </div>
         ) : interactionMode === "avatar" ? (
           /* ── Immersive avatar mode: video fills the area, UI floats on top ── */
           <div className="relative flex-1 bg-black overflow-hidden">
@@ -847,25 +966,46 @@ export default function CasePlayPage() {
               </div>
               <div className="flex items-center gap-2">
                 {roleHasAvatarProfile && (
-                  <div className="flex gap-1">
-                    <Button
-                      size="sm"
-                      variant="flat"
-                      className="bg-white/10 text-white/70"
-                      onPress={() => handleSwitchInteractionMode("text")}
-                      startContent={<Type className="w-3 h-3" />}
-                    >
-                      Text
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="flat"
-                      className="bg-white/20 text-white"
-                      onPress={() => handleSwitchInteractionMode("avatar")}
-                      startContent={<Video className="w-3 h-3" />}
-                    >
-                      Avatar
-                    </Button>
+                  <div className="flex items-center gap-2">
+                    <div className="flex gap-1">
+                      <Button
+                        size="sm"
+                        variant="flat"
+                        className="bg-white/10 text-white/70"
+                        onPress={() => handleSwitchInteractionMode("text")}
+                        startContent={<Type className="w-3 h-3" />}
+                      >
+                        Text
+                      </Button>
+                      {(() => {
+                        const limitExhausted = avatarLimitExhausted;
+                        return (
+                          <Button
+                            size="sm"
+                            variant="flat"
+                            className="bg-white/20 text-white"
+                            onPress={() => handleSwitchInteractionMode("avatar")}
+                            startContent={<Video className="w-3 h-3" />}
+                            isDisabled={limitExhausted}
+                          >
+                            Avatar
+                          </Button>
+                        );
+                      })()}
+                    </div>
+                    {avatarTimeLimitSeconds !== null && (
+                      <span className={`text-xs font-medium ${avatarLimitExhausted ? "text-danger-400" : "text-white/60"}`}>
+                        {avatarLimitExhausted
+                          ? "Limit reached"
+                          : (() => {
+                              const remaining = avatarTimeLimitSeconds - avatarTotalSeconds;
+                              return remaining < 60
+                                ? `${remaining}s left`
+                                : `${Math.floor(remaining / 60)}m left`;
+                            })()
+                        }
+                      </span>
+                    )}
                   </div>
                 )}
                 <Button
@@ -887,7 +1027,9 @@ export default function CasePlayPage() {
                       }
                       setInteractionLog({ ...interactionLog });
                     }
+                    stopAvatarTimer();
                     avatarRef.current?.stopSession();
+                    setAvatarGrandfathered(false);
                     setSelectedRole(null);
                   }}
                 >
@@ -942,25 +1084,46 @@ export default function CasePlayPage() {
               </div>
               <div className="flex items-center gap-2">
                 {roleHasAvatarProfile && (
-                  <div className="flex gap-1">
-                    <Button
-                      size="sm"
-                      variant="flat"
-                      color="primary"
-                      onPress={() => handleSwitchInteractionMode("text")}
-                      startContent={<Type className="w-3 h-3" />}
-                    >
-                      Text
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="flat"
-                      color="default"
-                      onPress={() => handleSwitchInteractionMode("avatar")}
-                      startContent={<Video className="w-3 h-3" />}
-                    >
-                      Avatar
-                    </Button>
+                  <div className="flex items-center gap-2">
+                    <div className="flex gap-1">
+                      <Button
+                        size="sm"
+                        variant="flat"
+                        color="primary"
+                        onPress={() => handleSwitchInteractionMode("text")}
+                        startContent={<Type className="w-3 h-3" />}
+                      >
+                        Text
+                      </Button>
+                      {(() => {
+                        const limitExhausted = avatarLimitExhausted;
+                        return (
+                          <Button
+                            size="sm"
+                            variant="flat"
+                            color="default"
+                            onPress={() => handleSwitchInteractionMode("avatar")}
+                            startContent={<Video className="w-3 h-3" />}
+                            isDisabled={limitExhausted}
+                          >
+                            Avatar
+                          </Button>
+                        );
+                      })()}
+                    </div>
+                    {avatarTimeLimitSeconds !== null && (
+                      <span className={`text-xs font-medium ${avatarLimitExhausted ? "text-danger-500" : "text-default-400"}`}>
+                        {avatarLimitExhausted
+                          ? "Limit reached"
+                          : (() => {
+                              const remaining = avatarTimeLimitSeconds - avatarTotalSeconds;
+                              return remaining < 60
+                                ? `${remaining}s left`
+                                : `${Math.floor(remaining / 60)}m left`;
+                            })()
+                        }
+                      </span>
+                    )}
                   </div>
                 )}
                 <Button
@@ -990,6 +1153,17 @@ export default function CasePlayPage() {
             </div>
 
             {/* Messages */}
+            {avatarLimitExhausted && roleHasAvatarProfile && (
+              <div className="p-4 border-b bg-warning-50 flex items-start gap-3">
+                <Video className="w-5 h-5 text-warning-600 shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-semibold text-warning-800 text-sm">Avatar time limit reached</p>
+                  <p className="text-xs text-warning-700 mt-0.5">
+                    You have used all {avatarTimeLimitSeconds !== null ? avatarTimeLimitSeconds / 60 : 0} minutes of avatar interaction for this case. You can continue with text mode.
+                  </p>
+                </div>
+              </div>
+            )}
             <div className="flex-1 overflow-y-auto p-4 space-y-4">
               {currentRoleMessages.length === 0 && (
                 <div className="text-center text-default-400 py-8">

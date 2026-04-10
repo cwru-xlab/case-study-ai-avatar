@@ -63,15 +63,16 @@ export async function GET(request: NextRequest) {
 
     // Collect all assigned case IDs from student's cohorts
     const assignedCaseIds = new Set<string>();
-    const cohortInfo: Record<string, { cohortId: string; cohortName: string }> = {};
+    const cohortInfo: Record<string, { cohortId: string; cohortName: string; heygenMinutesLimit: number | null }> = {};
 
     for (const cohort of studentCohorts) {
-      const caseIds = cohort.assignedCaseIds || [];
-      for (const caseId of caseIds) {
-        assignedCaseIds.add(caseId);
-        cohortInfo[caseId] = {
+      const assignments = cohort.assignedCases ?? (cohort.assignedCaseIds ?? []).map((id) => ({ caseId: id, heygenMinutesLimit: null }));
+      for (const assignment of assignments) {
+        assignedCaseIds.add(assignment.caseId);
+        cohortInfo[assignment.caseId] = {
           cohortId: cohort.id,
           cohortName: cohort.name,
+          heygenMinutesLimit: assignment.heygenMinutesLimit ?? null,
         };
       }
     }
@@ -85,6 +86,7 @@ export async function GET(request: NextRequest) {
           ...caseData,
           cohortId: cohortInfo[caseId]?.cohortId,
           cohortName: cohortInfo[caseId]?.cohortName,
+          heygenMinutesLimit: cohortInfo[caseId]?.heygenMinutesLimit ?? null,
         });
       }
     }
@@ -95,7 +97,7 @@ export async function GET(request: NextRequest) {
       cohorts: studentCohorts.map((c) => ({
         id: c.id,
         name: c.name,
-        assignedCaseIds: c.assignedCaseIds || [],
+        assignedCaseIds: c.assignedCases?.map((a) => a.caseId) ?? c.assignedCaseIds ?? [],
       })),
     });
   } catch (error) {

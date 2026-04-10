@@ -74,7 +74,7 @@ export async function GET(
       return NextResponse.json({ error: "Student not found" }, { status: 404 });
     }
 
-    const assignedCaseIds = cohort.assignedCaseIds || [];
+    const assignedCaseIds = cohort.assignedCases?.map((a) => a.caseId) ?? cohort.assignedCaseIds ?? [];
 
     if (assignedCaseIds.length === 0) {
       return NextResponse.json({
