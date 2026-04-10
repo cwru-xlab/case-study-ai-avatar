@@ -45,6 +45,7 @@ interface InteractiveAvatarWrapperProps {
   autoStart?: boolean;
   cleanMode?: boolean;
   onProgrammaticSpeak?: (speak: (text: string) => void) => void;
+  onSessionStateChange?: (state: StreamingAvatarSessionState) => void;
 }
 
 async function fetchSessionToken(config: StartAvatarRequest): Promise<string> {
@@ -73,8 +74,9 @@ const ActiveSession = forwardRef<
     showHistory: boolean;
     cleanMode: boolean;
     onProgrammaticSpeak?: (speak: (text: string) => void) => void;
+    onSessionStateChange?: (state: StreamingAvatarSessionState) => void;
   }
->(({ showHistory, cleanMode, onProgrammaticSpeak }, ref) => {
+>(({ showHistory, cleanMode, onProgrammaticSpeak, onSessionStateChange }, ref) => {
   const {
     startSession,
     stopAvatar,
@@ -98,6 +100,11 @@ const ActiveSession = forwardRef<
       startSession();
     }
   }, [startSession]);
+
+  // Notify parent of session state changes
+  useEffect(() => {
+    onSessionStateChange?.(sessionState);
+  }, [sessionState, onSessionStateChange]);
 
   // Attach video element when stream is ready
   useEffect(() => {
@@ -181,8 +188,9 @@ const ActiveSession = forwardRef<
           <track kind="captions" />
         </video>
         {!isLoaded && (
-          <div className="w-full h-full flex items-center justify-center absolute top-0 left-0">
-            Loading...
+          <div className="w-full h-full flex flex-col items-center justify-center absolute top-0 left-0 bg-black">
+            <LoaderCircle className="animate-spin text-white/70 mb-3" size={32} />
+            <p className="text-white/60 text-sm">Connecting to avatar...</p>
           </div>
         )}
       </div>
@@ -236,7 +244,7 @@ ActiveSession.displayName = "ActiveSession";
 const InteractiveAvatarWrapper = forwardRef<
   InteractiveAvatarRef,
   InteractiveAvatarWrapperProps
->(({ config = DEFAULT_CONFIG, showHistory = true, autoStart = false, cleanMode = false, onProgrammaticSpeak }, ref) => {
+>(({ config = DEFAULT_CONFIG, showHistory = true, autoStart = false, cleanMode = false, onProgrammaticSpeak, onSessionStateChange }, ref) => {
   const [sessionToken, setSessionToken] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isStarting, setIsStarting] = useState(false);
@@ -357,6 +365,7 @@ const InteractiveAvatarWrapper = forwardRef<
         showHistory={effectiveShowHistory}
         cleanMode={cleanMode}
         onProgrammaticSpeak={onProgrammaticSpeak}
+        onSessionStateChange={onSessionStateChange}
       />
     </StreamingAvatarProvider>
   );

@@ -35,6 +35,7 @@ import { title } from "@/components/primitives";
 import { useAuth } from "@/lib/auth-context";
 import type { CaseStudy, CaseAvatar, InteractionLog, RoleMessage, RoleInteraction, InteractionEvent, StartAvatarRequest, VideoAudioProfile } from "@/types";
 import InteractiveAvatarWrapper, { InteractiveAvatarRef } from "@/components/HeyGenAvatar/InteractiveAvatar";
+import { StreamingAvatarSessionState } from "@/components/HeyGenAvatar/logic";
 
 type PageState = "intro" | "playing";
 type InteractionMode = "text" | "avatar";
@@ -93,6 +94,7 @@ export default function CasePlayPage() {
   const [avatarGrandfathered, setAvatarGrandfathered] = useState(false); // true = current avatar session was running when limit hit, allow it to finish
   const avatarModeStartRef = useRef<number | null>(null);
   const avatarTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const avatarTotalSecondsRef = useRef<number>(0);
 
   // Finish confirmation modal
   const [showFinishModal, setShowFinishModal] = useState(false);
@@ -197,6 +199,11 @@ export default function CasePlayPage() {
       };
     }
   }, [pageState, mode]);
+
+  // Keep avatarTotalSecondsRef in sync with state
+  useEffect(() => {
+    avatarTotalSecondsRef.current = avatarTotalSeconds;
+  }, [avatarTotalSeconds]);
 
   // Cleanup avatar timer on unmount
   useEffect(() => {
@@ -419,6 +426,25 @@ export default function CasePlayPage() {
     // avatarTotalSeconds is NOT reset — it keeps accumulating across sessions
   };
 
+  const startAvatarTimer = useCallback(() => {
+    if (avatarTimerRef.current) return;
+    avatarModeStartRef.current = Date.now();
+    const baseTotal = avatarTotalSecondsRef.current;
+    avatarTimerRef.current = setInterval(() => {
+      if (avatarModeStartRef.current !== null) {
+        setAvatarTotalSeconds(baseTotal + Math.round((Date.now() - avatarModeStartRef.current) / 1000));
+      }
+    }, 1000);
+  }, []);
+
+  const handleAvatarSessionStateChange = useCallback((state: StreamingAvatarSessionState) => {
+    if (state === StreamingAvatarSessionState.CONNECTED) {
+      startAvatarTimer();
+    } else {
+      stopAvatarTimer();
+    }
+  }, [startAvatarTimer]);
+
   const handleSwitchInteractionMode = (newMode: InteractionMode) => {
     if (newMode === interactionMode) return;
     if (!interactionLog || !selectedRole) return;
@@ -440,14 +466,7 @@ export default function CasePlayPage() {
     setInteractionLog({ ...interactionLog });
 
     if (newMode === "avatar") {
-      // Start ticking — avatarTotalSeconds increments every second in avatar mode
-      avatarModeStartRef.current = Date.now();
-      const baseTotal = avatarTotalSeconds;
-      avatarTimerRef.current = setInterval(() => {
-        if (avatarModeStartRef.current !== null) {
-          setAvatarTotalSeconds(baseTotal + Math.round((Date.now() - avatarModeStartRef.current) / 1000));
-        }
-      }, 1000);
+      // Timer will start when the avatar session reports CONNECTED
     } else if (interactionMode === "avatar") {
       // Pause timer — total already includes this session's time via setInterval
       stopAvatarTimer();
@@ -954,6 +973,7 @@ export default function CasePlayPage() {
                   showHistory={false}
                   autoStart={true}
                   cleanMode={true}
+                  onSessionStateChange={handleAvatarSessionStateChange}
                 />
               </div>
             )}
