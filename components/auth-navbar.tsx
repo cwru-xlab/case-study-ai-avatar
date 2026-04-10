@@ -27,6 +27,7 @@ import { useState } from "react";
 import { siteConfig } from "@/config/site";
 import { ThemeSwitch } from "@/components/theme-switch";
 import { WeatherheadLogo } from "@/components/kiosk";
+import { useLayout } from "@/lib/layout-context";
 
 const iconMap = {
   Home,
@@ -44,10 +45,11 @@ const iconMap = {
 export const AuthNavbar = () => {
   const { user, logout, loading } = useAuth();
   const pathname = usePathname();
+  const { fullScreen } = useLayout();
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
 
-  if (pathname.startsWith("/kiosk")) {
+  if (pathname.startsWith("/kiosk") || fullScreen) {
     return null;
   }
 

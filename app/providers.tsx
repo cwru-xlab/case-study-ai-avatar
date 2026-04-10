@@ -8,6 +8,7 @@ import { ToastProvider, addToast } from "@heroui/toast";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ThemeProvider as NextThemesProvider } from "next-themes";
 import { AuthProvider } from "@/lib/auth-context";
+import { LayoutProvider } from "@/lib/layout-context";
 
 export interface ProvidersProps {
   children: React.ReactNode;
@@ -90,10 +91,12 @@ export function Providers({ children, themeProps }: ProvidersProps) {
       <ToastProvider />
       <NextThemesProvider {...themeProps}>
         <AuthProvider>
-          <React.Suspense fallback={null}>
-            <ErrorToastHandler />
-          </React.Suspense>
-          {children}
+          <LayoutProvider>
+            <React.Suspense fallback={null}>
+              <ErrorToastHandler />
+            </React.Suspense>
+            {children}
+          </LayoutProvider>
         </AuthProvider>
       </NextThemesProvider>
     </HeroUIProvider>

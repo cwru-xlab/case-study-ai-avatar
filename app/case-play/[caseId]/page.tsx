@@ -33,6 +33,8 @@ import {
 import { addToast } from "@heroui/toast";
 import { title } from "@/components/primitives";
 import { useAuth } from "@/lib/auth-context";
+import { useLayout } from "@/lib/layout-context";
+import AvatarImage from "@/components/AvatarImage";
 import type { CaseStudy, CaseAvatar, InteractionLog, RoleMessage, RoleInteraction, InteractionEvent, StartAvatarRequest, VideoAudioProfile } from "@/types";
 import InteractiveAvatarWrapper, { InteractiveAvatarRef } from "@/components/HeyGenAvatar/InteractiveAvatar";
 import { StreamingAvatarSessionState } from "@/components/HeyGenAvatar/logic";
@@ -58,6 +60,7 @@ export default function CasePlayPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { user } = useAuth();
+  const { setFullScreen } = useLayout();
   const caseId = params.caseId as string;
   const cohortId = searchParams.get("cohortId") || "";
 
@@ -96,6 +99,9 @@ export default function CasePlayPage() {
   const avatarTimerRef = useRef<NodeJS.Timeout | null>(null);
   const avatarTotalSecondsRef = useRef<number>(0);
 
+  // Avatar portrait images (keyed by avatar id)
+  const [avatarPortraits, setAvatarPortraits] = useState<Record<string, string>>({});
+
   // Finish confirmation modal
   const [showFinishModal, setShowFinishModal] = useState(false);
 
@@ -105,10 +111,42 @@ export default function CasePlayPage() {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
 
+  // Toggle full-screen mode when entering/leaving playing state
+  useEffect(() => {
+    setFullScreen(pageState === "playing");
+    return () => setFullScreen(false);
+  }, [pageState, setFullScreen]);
+
   // Load case data
   useEffect(() => {
     loadCase();
   }, [caseId]);
+
+  // Fetch avatar portrait images from their linked profiles
+  useEffect(() => {
+    if (!caseData?.avatars) return;
+    const avatarsWithProfiles = caseData.avatars.filter((a) => a.profileId);
+    if (avatarsWithProfiles.length === 0) return;
+
+    Promise.all(
+      avatarsWithProfiles.map(async (avatar) => {
+        try {
+          const res = await fetch(`/api/profile/get?id=${encodeURIComponent(avatar.profileId!)}`);
+          if (!res.ok) return null;
+          const data = await res.json();
+          const portrait = data.profile?.portrait;
+          if (portrait) return { id: avatar.id, portrait };
+        } catch {}
+        return null;
+      })
+    ).then((results) => {
+      const portraits: Record<string, string> = {};
+      for (const r of results) {
+        if (r) portraits[r.id] = r.portrait;
+      }
+      setAvatarPortraits(portraits);
+    });
+  }, [caseData]);
 
   // Load unfinished sessions once we have user + caseId
   useEffect(() => {
@@ -785,9 +823,17 @@ export default function CasePlayPage() {
             <CardBody>
               <div className="grid gap-3">
                 {caseData.avatars.map((avatar) => (
-                  <div key={avatar.id} className="p-4 bg-default-50 rounded-lg">
-                    <p className="font-semibold">{avatar.name}</p>
-                    <p className="text-sm text-default-500">{avatar.role}</p>
+                  <div key={avatar.id} className="flex items-center gap-4 p-4 bg-default-50 rounded-lg">
+                    <AvatarImage
+                      portrait={avatarPortraits[avatar.id]}
+                      name={avatar.name}
+                      size={48}
+                      className="shrink-0"
+                    />
+                    <div>
+                      <p className="font-semibold">{avatar.name}</p>
+                      <p className="text-sm text-default-500">{avatar.role}</p>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -879,7 +925,7 @@ export default function CasePlayPage() {
   const currentRoleMessages = selectedRole ? (chatMessages[selectedRole.id] || []) : [];
 
   return (
-    <div className="flex h-[calc(100vh-80px)] gap-4">
+    <div className="flex h-full gap-4 p-4">
       {/* Left sidebar - Roles */}
       <div className="w-64 shrink-0 flex flex-col gap-3">
         <div className="flex items-center justify-between">
@@ -889,7 +935,7 @@ export default function CasePlayPage() {
           </Chip>
         </div>
 
-        <div className="flex flex-col gap-2 flex-1 overflow-y-auto">
+        <div className="flex flex-col gap-2 flex-1 overflow-y-auto px-1 -mx-1">
           {caseData.avatars?.map((avatar) => {
             const msgCount = (chatMessages[avatar.id] || []).length;
             const isSelected = selectedRole?.id === avatar.id;
@@ -901,14 +947,24 @@ export default function CasePlayPage() {
                 onPress={() => handleSelectRole(avatar)}
               >
                 <CardBody className="p-3">
-                  <p className="font-medium text-sm">{avatar.name}</p>
-                  <p className="text-xs text-default-500 line-clamp-1">{avatar.role}</p>
-                  {msgCount > 0 && (
-                    <div className="flex items-center gap-1 mt-1">
-                      <MessageSquare className="w-3 h-3 text-default-400" />
-                      <span className="text-xs text-default-400">{msgCount} messages</span>
+                  <div className="flex items-center gap-3">
+                    <AvatarImage
+                      portrait={avatarPortraits[avatar.id]}
+                      name={avatar.name}
+                      size={32}
+                      className="shrink-0"
+                    />
+                    <div className="min-w-0">
+                      <p className="font-medium text-sm">{avatar.name}</p>
+                      <p className="text-xs text-default-500 line-clamp-1">{avatar.role}</p>
+                      {msgCount > 0 && (
+                        <div className="flex items-center gap-1 mt-1">
+                          <MessageSquare className="w-3 h-3 text-default-400" />
+                          <span className="text-xs text-default-400">{msgCount} messages</span>
+                        </div>
+                      )}
                     </div>
-                  )}
+                  </div>
                 </CardBody>
               </Card>
             );
