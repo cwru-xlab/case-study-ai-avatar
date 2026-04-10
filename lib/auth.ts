@@ -138,31 +138,12 @@ export async function authenticateUser(
   email: string,
   password: string
 ): Promise<User | null> {
-  // Check for kiosk mode credentials in production
+  // Email/password login is completely disabled in production
   if (process.env.NODE_ENV === "production") {
-    try {
-      const kioskModeUsername = await get("kioskModeUsername");
-      const kioskModePasswordHash = await get("kioskModePasswordSHA512");
-
-      // Hash the input password and compare with stored hash
-      const inputPasswordHash = hashPassword(password);
-
-      if (email === kioskModeUsername && inputPasswordHash === kioskModePasswordHash) {
-        // Return kiosk user
-        return {
-          id: "kiosk_user",
-          email: email,
-          name: "Kiosk Mode User",
-          role: "kiosk",
-          authProvider: "email",
-        };
-      }
-    } catch (error) {
-      console.error("Error checking kiosk mode credentials:", error);
-    }
+    return null;
   }
 
-  // Authenticate from database
+  // Development only: authenticate from database
   try {
     const dbUser = await prisma.user.findUnique({
       where: { email },

@@ -6,6 +6,8 @@ import { useState, useEffect } from "react";
 import { useAuth } from "@/lib/auth-context";
 import { University } from "lucide-react";
 
+const isProduction = process.env.NODE_ENV === "production";
+
 export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -56,93 +58,92 @@ export default function LoginPage() {
         <div className="text-center mb-6">
           <h1 className="text-2xl font-bold">Sign In</h1>
           <p className="text-gray-600 mt-2">
-            Access your account with your credentials
+            {isProduction
+              ? "Sign in with your CWRU credentials"
+              : "Access your account with your credentials"}
           </p>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
-          {error && (
-            <div className="p-3 text-sm text-red-600 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded">
-              {error}
+        {error && (
+          <div className="p-3 mb-4 text-sm text-red-600 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded">
+            {error}
+          </div>
+        )}
+
+        {!isProduction && (
+          <>
+            <form onSubmit={handleSubmit} className="space-y-4">
+              <Input
+                label="Email"
+                type="email"
+                placeholder="Enter your email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                required
+              />
+
+              <Input
+                label="Password"
+                type="password"
+                placeholder="Enter your password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+              />
+
+              <Button
+                type="submit"
+                className="w-full"
+                color="primary"
+                isLoading={isLoading}
+              >
+                {isLoading ? "Signing In..." : "Sign In"}
+              </Button>
+            </form>
+
+            <div className="mt-4">
+              <div className="relative">
+                <div className="absolute inset-0 flex items-center">
+                  <span className="w-full border-t" />
+                </div>
+                <div className="relative flex justify-center text-xs uppercase">
+                  <span className="bg-white dark:bg-gray-800 px-2 text-gray-500">
+                    Or continue with
+                  </span>
+                </div>
+              </div>
             </div>
-          )}
+          </>
+        )}
 
-          <Input
-            label="Email"
-            type="email"
-            placeholder="Enter your email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            required
-          />
+        <Button
+          type="button"
+          variant={isProduction ? "solid" : "bordered"}
+          color={isProduction ? "primary" : "default"}
+          className="w-full mt-4"
+          size={isProduction ? "lg" : "md"}
+          onClick={handleCWRULogin}
+        >
+          <University />
+          Sign in with CWRU SSO
+        </Button>
 
-          <Input
-            label="Password"
-            type="password"
-            placeholder="Enter your password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            required
-          />
-
-          <Button
-            type="submit"
-            className="w-full"
-            color="primary"
-            isLoading={isLoading}
-          >
-            {isLoading ? "Signing In..." : "Sign In"}
-          </Button>
-        </form>
-
-        <div className="mt-4">
-          <div className="relative">
-            <div className="absolute inset-0 flex items-center">
-              <span className="w-full border-t" />
-            </div>
-            <div className="relative flex justify-center text-xs uppercase">
-              <span className="bg-white dark:bg-gray-800 px-2 text-gray-500">
-                Or continue with
-              </span>
+        {!isProduction && (
+          <div className="mt-6 text-center text-sm text-gray-600">
+            <p>Development mode — test credentials:</p>
+            <div className="mt-3 space-y-2 text-left bg-gray-100 dark:bg-gray-700 p-3 rounded">
+              <p className="ml-4">
+                <strong>Admin:</strong> admin@example.com / admin123
+              </p>
+              <p className="ml-4">
+                <strong>User:</strong> user@example.com / user123
+              </p>
+              <p className="ml-4">
+                <strong>Student:</strong> student@case.edu / student123
+              </p>
             </div>
           </div>
-
-          <Button
-            type="button"
-            variant="bordered"
-            className="w-full mt-4"
-            onClick={handleCWRULogin}
-          >
-            <University />
-            Sign in with CWRU SSO
-          </Button>
-        </div>
-
-        <div className="mt-6 text-center text-sm text-gray-600">
-          <p>JWT authentication is active. Choose your login method:</p>
-          <div className="mt-3 space-y-2 text-left bg-gray-100 dark:bg-gray-700 p-3 rounded">
-            <p>
-              <strong>Test Email Login:</strong>
-            </p>
-            <p className="ml-4">
-              <strong>Admin:</strong> admin@example.com / admin123
-            </p>
-            <p className="ml-4">
-              <strong>User:</strong> user@example.com / user123
-            </p>
-            <p className="ml-4">
-              <strong>Student:</strong> student@case.edu / student123
-            </p>
-            <p className="mt-2">
-              <strong>CWRU SSO:</strong> Use your Case Western Reserve
-              University credentials
-            </p>
-          </div>
-          <p className="mt-3">
-            Try accessing other pages without logging in - you&apos;ll be
-            redirected here.
-          </p>
-        </div>
+        )}
       </div>
     </div>
   );

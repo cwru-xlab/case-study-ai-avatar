@@ -15,7 +15,15 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Authenticate user
+    // Email/password login is completely disabled in production
+    if (process.env.NODE_ENV === "production") {
+      return NextResponse.json(
+        { error: "Email login is disabled. Please use CWRU SSO." },
+        { status: 403 }
+      );
+    }
+
+    // Development: authenticate user
     const user = await authenticateUser(email, password);
 
     if (!user) {
