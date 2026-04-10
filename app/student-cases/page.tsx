@@ -321,7 +321,7 @@ export default function StudentCasesPage() {
             >
               {/* Cover image */}
               <div
-                className="relative h-32 bg-gradient-to-br from-primary-500 to-primary-700"
+                className="relative h-52 bg-gradient-to-br from-primary-500 to-primary-700"
                 style={caseItem.coverImage ? {
                   backgroundImage: `url(${caseItem.coverImage})`,
                   backgroundSize: "cover",
