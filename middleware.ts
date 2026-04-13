@@ -202,6 +202,13 @@ const STUDENT_ROUTES: string[] = [
   "/api/student/cases",
   "/case-play",
   "/api/interaction",
+  // Endpoints needed by case-play's avatar mode (streaming avatar,
+  // avatar profile config, and push-to-talk audio transcription).
+  // These endpoints are also used by kiosk flows, so the authorization
+  // check below additionally permits the kiosk role for shared routes.
+  "/api/avatar/get-access-token",
+  "/api/profile/get",
+  "/api/audio/transcribe",
 ];
 
 /**
@@ -298,13 +305,25 @@ export async function middleware(request: NextRequest) {
      * STUDENT ROUTE AUTHORIZATION
      *
      * For student-specific routes, allows student and admin users.
+     * Some routes (e.g., avatar access token, avatar profile config,
+     * audio transcription) are shared between student case-play and
+     * kiosk flows — for those, the kiosk role is also permitted.
      */
     const isStudentRoute = STUDENT_ROUTES.some((route) =>
       pathname.startsWith(route)
     );
 
+    const isKioskRoute = KIOSK_ROUTES.some((route) =>
+      pathname.startsWith(route)
+    );
+
     if (isStudentRoute) {
-      if (userRole !== "student" && userRole !== "admin") {
+      const allowed =
+        userRole === "student" ||
+        userRole === "admin" ||
+        (isKioskRoute && userRole === "kiosk");
+
+      if (!allowed) {
         if (pathname.startsWith("/api/")) {
           return NextResponse.json(
             { error: "Access denied: student or admin role required" },
@@ -326,9 +345,6 @@ export async function middleware(request: NextRequest) {
      * For kiosk-specific routes, allows both kiosk and admin users.
      * This enables kiosk functionality without requiring full admin privileges.
      */
-    const isKioskRoute = KIOSK_ROUTES.some((route) =>
-      pathname.startsWith(route)
-    );
 
     if (isKioskRoute) {
       /**
