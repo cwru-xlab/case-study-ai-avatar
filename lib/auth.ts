@@ -274,12 +274,34 @@ export async function createOrUpdateCWRUUser(
   const roleEnum = role.toUpperCase() as keyof typeof Role;
   const prismaRole = Role[roleEnum] || Role.STUDENT;
 
+  // Look up existing user to decide how to handle role changes. The
+  // `adminUsersCaseIds` edge-config list drives admin status on every login,
+  // so we need to promote to ADMIN or demote away from ADMIN based on the
+  // current login's `role` — without clobbering PROFESSOR/KIOSK roles that
+  // are managed out-of-band.
+  const existing = await prisma.user.findUnique({
+    where: { email: userInfo.mail },
+  });
+
+  let updateRole: Role | undefined;
+  if (existing) {
+    if (prismaRole === Role.ADMIN) {
+      // Promote to admin if the case ID is on the admin list.
+      updateRole = Role.ADMIN;
+    } else if (existing.role === Role.ADMIN) {
+      // Demote previously-admin user who is no longer on the admin list.
+      updateRole = Role.STUDENT;
+    }
+    // Otherwise leave existing role alone (preserves PROFESSOR/KIOSK/STUDENT).
+  }
+
   // Upsert user in database
   const dbUser = await prisma.user.upsert({
     where: { email: userInfo.mail },
     update: {
       name: `${userInfo.givenName} ${userInfo.sn}`,
       studentNumber: userInfo.studentId,
+      ...(updateRole ? { role: updateRole } : {}),
       lastLoginAt: new Date(),
     },
     create: {
