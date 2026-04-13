@@ -86,7 +86,7 @@ export const AuthNavbar = () => {
             <>
               <div className="flex flex-col">
                 <p className="font-bold text-lg text-inherit leading-tight">
-                  AI Case Study
+                  CaseBridge
                 </p>
               </div>
             </>

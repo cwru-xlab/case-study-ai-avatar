@@ -53,7 +53,7 @@ export default function Home() {
   return (
     <section className="flex flex-col items-center gap-8 py-8 md:py-10 max-w-5xl mx-auto px-4">
       <div className="text-center">
-        <h1 className={title()}>AI Case Study</h1>
+        <h1 className={title()}>CaseBridge</h1>
         <p className="text-default-500 mt-4 text-lg">
           Welcome back, {user?.name || "User"}
         </p>

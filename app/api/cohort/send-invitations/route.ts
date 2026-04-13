@@ -56,7 +56,7 @@ Please use your email address (${email}) when joining.
 If you have any questions, please contact your instructor.
 
 Best regards,
-AI Case Study Platform`;
+CaseBridge Platform`;
 
       const htmlContent = `
 <!DOCTYPE html>

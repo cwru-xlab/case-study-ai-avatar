@@ -1,7 +1,7 @@
 export type SiteConfig = typeof siteConfig;
 
 export const siteConfig = {
-  name: "AI Case Study",
+  name: "CaseBridge",
   description: "AI Case Study",
   navItems: [
     {
