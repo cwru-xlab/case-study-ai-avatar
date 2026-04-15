@@ -1,7 +1,7 @@
 /**
- * NEXT.JS MIDDLEWARE - AUTHENTICATION AND AUTHORIZATION
+ * NEXT.JS PROXY - AUTHENTICATION AND AUTHORIZATION
  *
- * This middleware provides comprehensive security for the AI Avatar Kiosk application.
+ * This proxy provides comprehensive security for the AI Avatar Kiosk application.
  * It handles JWT-based authentication and role-based authorization for all protected routes.
  *
  * Key Features:
@@ -205,20 +205,20 @@ const STUDENT_ROUTES: string[] = [
 ];
 
 /**
- * MAIN MIDDLEWARE FUNCTION
+ * MAIN PROXY FUNCTION
  *
  * Processes every request to determine authentication and authorization requirements.
  * Implements a security-first approach where all routes are protected by default.
  *
  * Flow:
  * 1. Check if route is public (skip authentication)
- * 2. Check if route is static/system (skip middleware)
+ * 2. Check if route is static/system (skip proxy)
  * 3. Validate JWT token exists
  * 4. Verify JWT token signature and payload
  * 5. Check admin role for admin-only routes
  * 6. Allow or deny access based on validation results
  */
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   /**
@@ -450,9 +450,9 @@ export async function middleware(request: NextRequest) {
 }
 
 /**
- * MIDDLEWARE CONFIGURATION
+ * PROXY CONFIGURATION
  *
- * Configures which routes the middleware should process.
+ * Configures which routes the proxy should process.
  * Uses Next.js matcher configuration to exclude system routes.
  *
  * Excluded paths:
@@ -460,7 +460,7 @@ export async function middleware(request: NextRequest) {
  * - _next/image: Next.js image optimization
  * - favicon.ico: Browser favicon requests
  *
- * This optimization prevents middleware execution for requests
+ * This optimization prevents proxy execution for requests
  * that don't require authentication or authorization checks.
  */
 export const config = {
