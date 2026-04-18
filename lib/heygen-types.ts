@@ -1,0 +1,5 @@
+export type HeygenErrorCode =
+  | "HEYGEN_MISSING_KEY"
+  | "HEYGEN_INVALID_KEY"
+  | "HEYGEN_UPSTREAM_ERROR"
+  | "HEYGEN_BAD_REQUEST";

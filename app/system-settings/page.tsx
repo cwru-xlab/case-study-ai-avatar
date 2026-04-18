@@ -6,7 +6,7 @@ import { Button } from "@heroui/button";
 import { Input, Textarea } from "@heroui/input";
 import { Chip } from "@heroui/chip";
 import { addToast } from "@heroui/toast";
-import { Plus, X, Shield, MessageSquare, Heart } from "lucide-react";
+import { Plus, X, Shield, MessageSquare, Heart, RefreshCw } from "lucide-react";
 
 import { title } from "@/components/primitives";
 import DocumentUpload, { type PendingDocument, type ProcessingDocument } from "@/components/document-upload";
@@ -31,6 +31,17 @@ export default function SystemSettingsPage() {
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const autosaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const [avatarHealthLoading, setAvatarHealthLoading] = useState(false);
+  const [avatarHealth, setAvatarHealth] = useState<{
+    heygenConfigured: boolean;
+    liveAvatarApiUrl: string;
+    probe: {
+      checked: boolean;
+      ok: boolean;
+      code: "ok" | "missing_key" | "invalid_key" | "upstream_error";
+      message: string;
+    };
+  } | null>(null);
 
   // Cleanup function to cancel all active polling
   const cleanupPolling = useCallback(() => {
@@ -264,6 +275,30 @@ export default function SystemSettingsPage() {
   useEffect(() => {
     loadGuardrails();
   }, []);
+
+  const loadAvatarHealth = useCallback(async () => {
+    setAvatarHealthLoading(true);
+    try {
+      const response = await fetch("/api/avatar/status");
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data?.error || "Failed to fetch avatar status");
+      }
+      setAvatarHealth(data);
+    } catch (error) {
+      addToast({
+        title: "Avatar Health Check Failed",
+        description: (error as Error).message || "Could not read avatar status",
+        color: "danger",
+      });
+    } finally {
+      setAvatarHealthLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadAvatarHealth();
+  }, [loadAvatarHealth]);
 
   return (
     <div className="flex flex-col gap-6 w-[70vw]">
@@ -577,7 +612,18 @@ export default function SystemSettingsPage() {
       {/* System Status */}
       <Card>
         <CardHeader>
-          <h3 className="text-lg font-semibold">System Status</h3>
+          <div className="flex items-center justify-between w-full">
+            <h3 className="text-lg font-semibold">System Status</h3>
+            <Button
+              size="sm"
+              variant="flat"
+              startContent={<RefreshCw className="w-4 h-4" />}
+              isLoading={avatarHealthLoading}
+              onPress={loadAvatarHealth}
+            >
+              Check Avatar Health
+            </Button>
+          </div>
         </CardHeader>
         <CardBody>
           <div className="space-y-3">
@@ -593,6 +639,45 @@ export default function SystemSettingsPage() {
               <span className="text-sm">Document Processing</span>
               <span className="text-sm text-success">Ready</span>
             </div>
+            <div className="flex justify-between items-center">
+              <span className="text-sm">Avatar Integration</span>
+              {avatarHealth ? (
+                <Chip
+                  size="sm"
+                  color={
+                    avatarHealth.probe.code === "ok"
+                      ? "success"
+                      : avatarHealth.probe.code === "upstream_error"
+                        ? "warning"
+                        : "danger"
+                  }
+                  variant="flat"
+                >
+                  {avatarHealth.probe.code === "ok"
+                    ? "Healthy"
+                    : avatarHealth.probe.code === "missing_key"
+                      ? "Missing Key"
+                      : avatarHealth.probe.code === "invalid_key"
+                        ? "Invalid Key"
+                        : "Upstream Issue"}
+                </Chip>
+              ) : (
+                <span className="text-sm text-default-500">Unknown</span>
+              )}
+            </div>
+            {avatarHealth && (
+              <>
+                <div className="flex justify-between items-center">
+                  <span className="text-sm text-default-500">LiveAvatar URL</span>
+                  <span className="text-xs text-default-500 break-all text-right max-w-[65%]">
+                    {avatarHealth.liveAvatarApiUrl}
+                  </span>
+                </div>
+                <p className="text-xs text-default-500">
+                  {avatarHealth.probe.message}
+                </p>
+              </>
+            )}
           </div>
         </CardBody>
       </Card>
