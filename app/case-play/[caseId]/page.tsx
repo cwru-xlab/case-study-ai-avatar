@@ -22,6 +22,7 @@ import {
   Mic,
   MicOff,
   RotateCcw,
+  DoorOpen,
 } from "lucide-react";
 import {
   Modal,
@@ -37,10 +38,12 @@ import { useLayout } from "@/lib/layout-context";
 import AvatarImage from "@/components/AvatarImage";
 import type { CaseStudy, CaseAvatar, InteractionLog, RoleMessage, RoleInteraction, InteractionEvent, StartAvatarRequest, VideoAudioProfile } from "@/types";
 import InteractiveAvatarWrapper, { InteractiveAvatarRef } from "@/components/HeyGenAvatar/InteractiveAvatar";
+import { HeygenSessionError } from "@/lib/heygen-client";
 import { StreamingAvatarSessionState } from "@/components/HeyGenAvatar/logic";
 
 type PageState = "intro" | "playing";
 type InteractionMode = "text" | "avatar";
+type SaveState = "idle" | "saving" | "saved" | "error";
 
 interface InteractionIndexEntry {
   id: string;
@@ -69,6 +72,8 @@ export default function CasePlayPage() {
   const [pageState, setPageState] = useState<PageState>("intro");
   const [interactionLog, setInteractionLog] = useState<InteractionLog | null>(null);
   const [mode, setMode] = useState<"explore" | "assessed">("assessed");
+  const [saveState, setSaveState] = useState<SaveState>("idle");
+  const [lastSavedAt, setLastSavedAt] = useState<number | null>(null);
 
   // Unfinished session state
   const [unfinishedSessions, setUnfinishedSessions] = useState<InteractionIndexEntry[]>([]);
@@ -80,12 +85,15 @@ export default function CasePlayPage() {
   const [currentInput, setCurrentInput] = useState("");
   const [sending, setSending] = useState(false);
   const [finishing, setFinishing] = useState(false);
+  const [leavingCase, setLeavingCase] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const autoSaveRef = useRef<NodeJS.Timeout | null>(null);
   const interactionLogRef = useRef<InteractionLog | null>(null);
 
   // Interaction mode state (text vs avatar)
   const [interactionMode, setInteractionMode] = useState<InteractionMode>("text");
+  /** null = not loaded yet; mirrors GET /api/avatar/status */
+  const [heygenAvatarConfigured, setHeygenAvatarConfigured] = useState<boolean | null>(null);
   const avatarRef = useRef<InteractiveAvatarRef>(null);
   const [avatarConfig, setAvatarConfig] = useState<StartAvatarRequest | null>(null);
   const [avatarConfigLoading, setAvatarConfigLoading] = useState(false);
@@ -116,6 +124,33 @@ export default function CasePlayPage() {
     setFullScreen(pageState === "playing");
     return () => setFullScreen(false);
   }, [pageState, setFullScreen]);
+
+  // Align UI with server HeyGen config (same env as /api/avatar/get-access-token)
+  useEffect(() => {
+    if (pageState !== "playing") return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/avatar/status");
+        const data = await res.json().catch(() => ({}));
+        if (cancelled) return;
+        setHeygenAvatarConfigured(Boolean(data.heygenConfigured));
+      } catch {
+        if (!cancelled) setHeygenAvatarConfigured(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [pageState]);
+
+  // If server reports HeyGen unavailable, do not stay in avatar mode
+  useEffect(() => {
+    if (pageState !== "playing") return;
+    if (heygenAvatarConfigured !== false) return;
+    if (interactionMode !== "avatar") return;
+    setInteractionMode("text");
+  }, [pageState, heygenAvatarConfigured, interactionMode]);
 
   // Load case data
   useEffect(() => {
@@ -308,14 +343,18 @@ export default function CasePlayPage() {
 
   const saveInteraction = async (log: InteractionLog) => {
     if (log.mode !== "assessed") return;
+    setSaveState("saving");
     try {
       await fetch("/api/interaction/save", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ log }),
       });
+      setSaveState("saved");
+      setLastSavedAt(Date.now());
     } catch (err) {
       console.error("Auto-save failed:", err);
+      setSaveState("error");
     }
   };
 
@@ -483,12 +522,34 @@ export default function CasePlayPage() {
     }
   }, [startAvatarTimer]);
 
+  const handleAvatarTokenError = useCallback((err: HeygenSessionError) => {
+    if (err.code === "HEYGEN_MISSING_KEY" || err.code === "HEYGEN_INVALID_KEY") {
+      setHeygenAvatarConfigured(false);
+      setInteractionMode("text");
+      addToast({
+        title: "Switched to text chat",
+        description: err.message,
+        color: "warning",
+      });
+    }
+  }, []);
+
   const handleSwitchInteractionMode = (newMode: InteractionMode) => {
     if (newMode === interactionMode) return;
     if (!interactionLog || !selectedRole) return;
 
     // Block switching to avatar if limit is exhausted
     if (newMode === "avatar" && avatarLimitExhausted) return;
+
+    if (newMode === "avatar" && heygenAvatarConfigured === false) {
+      addToast({
+        title: "Avatar unavailable",
+        description:
+          "HeyGen is not configured or the API key is invalid. Use text chat or ask your instructor to set HEYGEN_API_KEY.",
+        color: "warning",
+      });
+      return;
+    }
 
     const now = Date.now();
 
@@ -761,6 +822,45 @@ export default function CasePlayPage() {
     }
   };
 
+  /** Leave the case without submitting; progress stays in_progress on server (assessed). */
+  const handleSaveAndExit = async () => {
+    setLeavingCase(true);
+    try {
+      if (autoSaveRef.current) {
+        clearInterval(autoSaveRef.current);
+        autoSaveRef.current = null;
+      }
+      if (interactionMode === "avatar") {
+        stopAvatarTimer();
+        avatarRef.current?.stopSession();
+        setAvatarGrandfathered(false);
+      }
+      const log = interactionLogRef.current;
+      if (log?.mode === "assessed") {
+        await saveInteraction(log);
+      }
+      addToast({
+        title: "Progress saved",
+        description:
+          mode === "assessed"
+            ? "Continue later from My Cases. Nothing was submitted for grading."
+            : "You can open this case again when you are ready.",
+        color: "success",
+      });
+      const q = cohortId ? `?cohortId=${encodeURIComponent(cohortId)}` : "";
+      router.push(`/student-cases${q}`);
+    } catch (err) {
+      console.error("Save and exit failed:", err);
+      addToast({
+        title: "Could not save before leaving",
+        description: "Check your connection and try again.",
+        color: "danger",
+      });
+    } finally {
+      setLeavingCase(false);
+    }
+  };
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
@@ -853,6 +953,9 @@ export default function CasePlayPage() {
               <p className="text-sm text-default-500 mb-4">
                 You have sessions in progress. You can continue where you left off.
               </p>
+              <p className="text-xs text-default-400 mb-4">
+                Sessions appear here automatically when you close the page before finishing.
+              </p>
               <div className="grid gap-3">
                 {unfinishedSessions.map((session) => (
                   <div
@@ -934,6 +1037,24 @@ export default function CasePlayPage() {
             {mode === "assessed" ? "Assessed" : "Explore"}
           </Chip>
         </div>
+        {mode === "assessed" && (
+          <p className="text-xs text-default-500">
+            Progress auto-saves every 5s. You can close this page and continue later.
+          </p>
+        )}
+        {mode === "assessed" && (
+          <p className={`text-xs ${saveState === "error" ? "text-danger-500" : "text-default-400"}`}>
+            {saveState === "saving" && "Saving..."}
+            {saveState === "saved" && `Saved at ${lastSavedAt ? new Date(lastSavedAt).toLocaleTimeString() : "just now"}`}
+            {saveState === "error" && "Auto-save failed. We will retry shortly."}
+            {saveState === "idle" && "Autosave is ready."}
+          </p>
+        )}
+        {heygenAvatarConfigured === false && (
+          <p className="text-xs text-warning-700 dark:text-warning-600">
+            Avatar mode is unavailable (HeyGen API key missing or invalid on the server). Text chat still works.
+          </p>
+        )}
 
         <div className="flex flex-col gap-2 flex-1 overflow-y-auto px-1 -mx-1">
           {caseData.avatars?.map((avatar) => {
@@ -971,16 +1092,33 @@ export default function CasePlayPage() {
           })}
         </div>
 
-        <Button
-          color="danger"
-          variant="flat"
-          startContent={<CheckCircle className="w-4 h-4" />}
-          onPress={() => setShowFinishModal(true)}
-          isLoading={finishing}
-          className="w-full"
-        >
-          I&apos;m Finished
-        </Button>
+        <div className="flex flex-col gap-2 w-full shrink-0">
+          <Button
+            variant="bordered"
+            color="default"
+            startContent={<DoorOpen className="w-4 h-4" />}
+            onPress={handleSaveAndExit}
+            isLoading={leavingCase}
+            isDisabled={finishing}
+            className="w-full"
+          >
+            Save &amp; exit
+          </Button>
+          <p className="text-[11px] text-center text-default-400 leading-snug px-0.5">
+            Returns to My Cases without submitting. Your attempt stays in progress.
+          </p>
+          <Button
+            color="danger"
+            variant="flat"
+            startContent={<CheckCircle className="w-4 h-4" />}
+            onPress={() => setShowFinishModal(true)}
+            isLoading={finishing}
+            isDisabled={leavingCase}
+            className="w-full"
+          >
+            I&apos;m Finished
+          </Button>
+        </div>
       </div>
 
       {/* Main chat area */}
@@ -1030,6 +1168,7 @@ export default function CasePlayPage() {
                   autoStart={true}
                   cleanMode={true}
                   onSessionStateChange={handleAvatarSessionStateChange}
+                  onSessionTokenError={handleAvatarTokenError}
                 />
               </div>
             )}
@@ -1055,6 +1194,7 @@ export default function CasePlayPage() {
                       </Button>
                       {(() => {
                         const limitExhausted = avatarLimitExhausted;
+                        const avatarUnavailable = heygenAvatarConfigured !== true;
                         return (
                           <Button
                             size="sm"
@@ -1062,7 +1202,7 @@ export default function CasePlayPage() {
                             className="bg-white/20 text-white"
                             onPress={() => handleSwitchInteractionMode("avatar")}
                             startContent={<Video className="w-3 h-3" />}
-                            isDisabled={limitExhausted}
+                            isDisabled={limitExhausted || avatarUnavailable}
                           >
                             Avatar
                           </Button>
@@ -1109,7 +1249,7 @@ export default function CasePlayPage() {
                     setSelectedRole(null);
                   }}
                 >
-                  Leave
+                  Back to Roles
                 </Button>
               </div>
             </div>
@@ -1173,6 +1313,7 @@ export default function CasePlayPage() {
                       </Button>
                       {(() => {
                         const limitExhausted = avatarLimitExhausted;
+                        const avatarUnavailable = heygenAvatarConfigured !== true;
                         return (
                           <Button
                             size="sm"
@@ -1180,7 +1321,7 @@ export default function CasePlayPage() {
                             color="default"
                             onPress={() => handleSwitchInteractionMode("avatar")}
                             startContent={<Video className="w-3 h-3" />}
-                            isDisabled={limitExhausted}
+                            isDisabled={limitExhausted || avatarUnavailable}
                           >
                             Avatar
                           </Button>
@@ -1223,7 +1364,7 @@ export default function CasePlayPage() {
                     setSelectedRole(null);
                   }}
                 >
-                  Leave
+                  Back to Roles
                 </Button>
               </div>
             </div>
@@ -1307,11 +1448,13 @@ export default function CasePlayPage() {
           <ModalHeader>End This Session?</ModalHeader>
           <ModalBody>
             <p className="text-default-600">
-              Are you sure you&apos;re finished with the entire case? Once you submit,
-              you won&apos;t be able to continue this conversation or make any changes.
+              Are you sure you&apos;re finished with the entire case? Submitting now ends this attempt and it will no longer appear under Unfinished Sessions.
+            </p>
+            <p className="text-default-600">
+              You won&apos;t be able to continue this conversation or make any changes after submission.
               {mode === "assessed" && (
                 <span className="block mt-2 font-medium text-warning-600">
-                  This is an assessed attempt — your responses will be evaluated.
+                  This is an assessed attempt. Submission will trigger evaluation.
                 </span>
               )}
             </p>

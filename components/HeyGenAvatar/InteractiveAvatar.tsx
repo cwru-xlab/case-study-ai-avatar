@@ -19,6 +19,10 @@ import { MessageHistory } from "./AvatarSession/MessageHistory";
 import { TextInput } from "./AvatarSession/TextInput";
 import { Card } from "@heroui/card";
 import { Unplug } from "lucide-react";
+import {
+  HeygenSessionError,
+  throwHeygenTokenError,
+} from "@/lib/heygen-client";
 
 const DEFAULT_CONFIG: StartAvatarRequest = {
   quality: "low",
@@ -46,6 +50,8 @@ interface InteractiveAvatarWrapperProps {
   cleanMode?: boolean;
   onProgrammaticSpeak?: (speak: (text: string) => void) => void;
   onSessionStateChange?: (state: StreamingAvatarSessionState) => void;
+  /** Fired when session token cannot be obtained (config / API key / upstream). */
+  onSessionTokenError?: (error: HeygenSessionError) => void;
 }
 
 async function fetchSessionToken(config: StartAvatarRequest): Promise<string> {
@@ -58,11 +64,16 @@ async function fetchSessionToken(config: StartAvatarRequest): Promise<string> {
       language: config.language,
     }),
   });
+  const data = await response.json().catch(() => ({}));
   if (!response.ok) {
-    const errData = await response.json();
-    throw new Error(errData.error || "Failed to get session token");
+    throwHeygenTokenError(data);
   }
-  const data = await response.json();
+  if (!data.session_token) {
+    throw new HeygenSessionError(
+      "No session token returned from server.",
+      "HEYGEN_UPSTREAM_ERROR",
+    );
+  }
   return data.session_token;
 }
 
@@ -244,7 +255,7 @@ ActiveSession.displayName = "ActiveSession";
 const InteractiveAvatarWrapper = forwardRef<
   InteractiveAvatarRef,
   InteractiveAvatarWrapperProps
->(({ config = DEFAULT_CONFIG, showHistory = true, autoStart = false, cleanMode = false, onProgrammaticSpeak, onSessionStateChange }, ref) => {
+>(({ config = DEFAULT_CONFIG, showHistory = true, autoStart = false, cleanMode = false, onProgrammaticSpeak, onSessionStateChange, onSessionTokenError }, ref) => {
   const [sessionToken, setSessionToken] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isStarting, setIsStarting] = useState(false);
@@ -264,12 +275,19 @@ const InteractiveAvatarWrapper = forwardRef<
       setSessionToken(token);
     } catch (err) {
       console.error("Error starting session:", err);
-      setError((err as Error).message);
+      const message =
+        err instanceof HeygenSessionError
+          ? err.message
+          : (err as Error).message;
+      setError(message);
+      if (err instanceof HeygenSessionError) {
+        onSessionTokenError?.(err);
+      }
       setSessionToken(null);
     } finally {
       setIsStarting(false);
     }
-  }, []);
+  }, [onSessionTokenError]);
 
   // Auto-start on mount
   const hasAutoStartedRef = useRef(false);

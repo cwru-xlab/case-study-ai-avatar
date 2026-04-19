@@ -1,5 +1,8 @@
-const HEYGEN_API_KEY = process.env.HEYGEN_API_KEY;
-const HEYGEN_API_URL = "https://api.heygen.com";
+import {
+  getHeygenApiKey,
+  HEYGEN_REST_API_BASE,
+  heygenJsonError,
+} from "@/lib/heygen-server";
 
 interface HeyGenAvatar {
   avatar_id: string;
@@ -17,11 +20,13 @@ let cache: CacheEntry | null = null;
 
 export async function GET() {
   try {
+    const HEYGEN_API_KEY = getHeygenApiKey();
     if (!HEYGEN_API_KEY) {
-      return new Response(JSON.stringify({ error: "API key is missing" }), {
-        status: 500,
-        headers: { "Content-Type": "application/json" },
-      });
+      return heygenJsonError(
+        "HEYGEN_MISSING_KEY",
+        "HEYGEN_API_KEY is not set on the server.",
+        503,
+      );
     }
 
     if (cache && Date.now() - cache.timestamp < CACHE_TTL_MS) {
@@ -31,7 +36,7 @@ export async function GET() {
       });
     }
 
-    const res = await fetch(`${HEYGEN_API_URL}/v2/avatars`, {
+    const res = await fetch(`${HEYGEN_REST_API_BASE}/v2/avatars`, {
       headers: {
         "x-api-key": HEYGEN_API_KEY,
         "Content-Type": "application/json",
@@ -39,10 +44,21 @@ export async function GET() {
     });
 
     if (!res.ok) {
-      return new Response(
-        JSON.stringify({ error: "Failed to fetch HeyGen avatar list" }),
-        { status: res.status, headers: { "Content-Type": "application/json" } }
-      );
+      let msg = "Failed to fetch HeyGen avatar list";
+      try {
+        const errBody = await res.json();
+        msg = errBody?.message || errBody?.error || msg;
+      } catch {
+        /* ignore */
+      }
+      const code =
+        res.status === 401 || res.status === 403
+          ? "HEYGEN_INVALID_KEY"
+          : "HEYGEN_UPSTREAM_ERROR";
+      return new Response(JSON.stringify({ error: msg, code }), {
+        status: res.status,
+        headers: { "Content-Type": "application/json" },
+      });
     }
 
     const data = await res.json();
