@@ -54,7 +54,7 @@
     "idb": "^8.0.3",
     "intl-messageformat": "10.7.18",
     "jose": "^6.2.2",
-    "js-cookie": "^3.0.5",
+    "js-cookie": "^3.0.7",
     "jsdom": "^27.4.0",
     "lucide-react": "^0.577.0",
     "mammoth": "^1.12.0",
