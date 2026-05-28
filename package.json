@@ -95,7 +95,7 @@
     "eslint-plugin-react-hooks": "7.0.1",
     "eslint-plugin-unused-imports": "4.4.1",
     "globals": "17.4.0",
-    "postcss": "8.5.8",
+    "postcss": "8.5.10",
     "prettier": "3.8.1",
     "prisma": "^6.19.2",
     "tailwind-variants": "3.2.2",
